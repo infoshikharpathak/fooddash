@@ -1,0 +1,20 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - INTERNAL_BASE_URL=http://localhost:8000
+      - AUTO_TRAFFIC=true
+      - TRAFFIC_RPS=3
+      - FAILURE_RATE=0.15
+    depends_on:
+      - redis
+    volumes:
+      - /tmp:/tmp
