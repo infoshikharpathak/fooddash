@@ -147,6 +147,20 @@ async def create_order(payload: OrderCreateRequest, request: Request) -> Order:
     return order
 
 
+@router.get("")
+async def list_orders(limit: int = 100) -> list[Order]:
+    """Read-only listing for the dashboard — most recent first."""
+    return sorted(_ORDERS.values(), key=lambda o: o.created_at, reverse=True)[:limit]
+
+
+def order_status_counts() -> dict[str, int]:
+    """Plain function (not an endpoint) — used by main.py's /stats aggregation."""
+    counts: dict[str, int] = {}
+    for order in _ORDERS.values():
+        counts[order.status.value] = counts.get(order.status.value, 0) + 1
+    return counts
+
+
 @router.get("/{order_id}")
 async def get_order(order_id: str) -> Order:
     order = _ORDERS.get(order_id)

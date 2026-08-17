@@ -133,6 +133,20 @@ async def update_status(order_id: str, status: DeliveryStatus) -> Delivery:
     return delivery
 
 
+@router.get("")
+async def list_deliveries(limit: int = 100) -> list[Delivery]:
+    """Read-only listing for the dashboard — most recently assigned first."""
+    return list(reversed(list(_DELIVERIES.values())))[:limit]
+
+
+def delivery_status_counts() -> dict[str, int]:
+    """Plain function (not an endpoint) — used by main.py's /stats aggregation."""
+    counts: dict[str, int] = {}
+    for delivery in _DELIVERIES.values():
+        counts[delivery.status.value] = counts.get(delivery.status.value, 0) + 1
+    return counts
+
+
 @router.get("/{order_id}")
 async def get_delivery(order_id: str) -> Delivery:
     delivery = _DELIVERIES.get(order_id)

@@ -62,15 +62,40 @@ object, written to both stdout and `/tmp/fooddash.log`:
 
 `error_type`/`stack_trace` are only present on error-level logs.
 
+## Dashboard
+
+A Streamlit dashboard (`app.py`) gives a live, showcase-friendly view of the
+running system — talks to the backend over HTTP and auto-refreshes, so it
+works the same "walk away, come back" way the backend itself does.
+
+```bash
+streamlit run app.py
+```
+
+Four tabs:
+- **Dashboard** — live metrics (orders, deliveries, errors, uptime, request
+  count) plus three charts: orders by status, deliveries by status, and
+  errors by type.
+- **Restaurants** — browse the seeded restaurants and their menus.
+- **Orders** — table of recent orders and their current status.
+- **Deliveries** — table of recent deliveries and their current status.
+
+Powered by three new read-only backend endpoints: `GET /orders`,
+`GET /delivery` (list views — the existing `GET /orders/{id}` and
+`GET /delivery/{order_id}` are unchanged), and `GET /stats` (aggregate
+counts). None of these have side effects or failure injection — purely for
+observing state, same spirit as the log stream logscribe taps.
+
 ## Quick start
 
-### Docker Compose (Redis + app together)
+### Docker Compose (Redis + app + dashboard together)
 
 ```bash
 docker compose up --build
 ```
 
-The app starts generating traffic immediately — no separate script to run.
+Starts Redis, the backend (generating traffic immediately, no separate script
+to run), and the dashboard at http://localhost:8501.
 
 ### Local dev (no Docker)
 
@@ -82,6 +107,9 @@ pip install -r requirements.txt
 redis-server &
 
 uvicorn main:app --reload
+
+# in another terminal
+streamlit run app.py
 ```
 
 ## Config (env vars)
@@ -93,6 +121,7 @@ uvicorn main:app --reload
 | `AUTO_TRAFFIC` | `true` | Whether the traffic simulator runs on startup |
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
 | `FAILURE_RATE` | `0.15` | Global scaling factor for every injected failure's odds |
+| `FOODDASH_API_URL` | `http://localhost:8000` | Backend URL the dashboard polls (set to `http://app:8000` under Docker Compose) |
 
 ## Demo flow
 
@@ -105,12 +134,14 @@ cd ../logscribe
 logscribe watch --file /tmp/fooddash.log
 ```
 
-Walk away. Traffic keeps flowing, ~15% of requests fail with varied error
-types, and logscribe builds up a history of root-cause analyses you can come
-back to.
+Open http://localhost:8501 for the live dashboard, then walk away. Traffic
+keeps flowing, ~15% of requests fail with varied error types, logscribe
+builds up a history of root-cause analyses, and the dashboard's metrics and
+charts update on their own.
 
 ## Out of scope
 
-No frontend, no real database (in-memory state only), no auth, no real
-payment processing, no real delivery tracking/maps, and no logscribe code in
-this repo — zero coupling in either direction.
+No real database (in-memory state only), no auth, no real payment
+processing, no real delivery tracking/maps, and no logscribe code in this
+repo — zero coupling in either direction. The dashboard is read-only
+observability for the demo itself, not a customer-facing ordering UI.

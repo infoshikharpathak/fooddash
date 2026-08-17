@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections import Counter
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -49,11 +50,16 @@ _STATUS_MAP: dict[type[Exception], int] = {
     DeliveryStatusUpdateError: 502,
 }
 
+_START_TIME = time.monotonic()
+_error_counts: Counter[str] = Counter()
+_request_count = 0
+
 
 @app.exception_handler(FoodDashError)
 async def fooddash_error_handler(request: Request, exc: FoodDashError) -> JSONResponse:
     status_code = _STATUS_MAP.get(type(exc), 500)
     request_id = request.headers.get("X-Request-ID", "unknown")
+    _error_counts[type(exc).__name__] += 1
     logger.error(
         f"{type(exc).__name__} on {request.url.path}: {exc}",
         extra={"request_id": request_id, "endpoint": request.url.path, "error_type": type(exc).__name__},
@@ -63,10 +69,12 @@ async def fooddash_error_handler(request: Request, exc: FoodDashError) -> JSONRe
 
 @app.middleware("http")
 async def access_log_middleware(request: Request, call_next):
+    global _request_count
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
     start = time.perf_counter()
     response = await call_next(request)
     duration_ms = int((time.perf_counter() - start) * 1000)
+    _request_count += 1
 
     log = logger.error if response.status_code >= 400 else logger.info
     log(
@@ -80,6 +88,23 @@ async def access_log_middleware(request: Request, call_next):
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/stats")
+async def stats() -> dict:
+    """Read-only aggregate view for the dashboard — no side effects, safe to poll."""
+    order_counts = order.order_status_counts()
+    delivery_counts = delivery.delivery_status_counts()
+    return {
+        "uptime_seconds": int(time.monotonic() - _START_TIME),
+        "total_requests": _request_count,
+        "total_orders": sum(order_counts.values()),
+        "orders_by_status": order_counts,
+        "total_deliveries": sum(delivery_counts.values()),
+        "deliveries_by_status": delivery_counts,
+        "errors_by_type": dict(_error_counts),
+        "total_errors": sum(_error_counts.values()),
+    }
 
 
 _background_tasks: set[asyncio.Task] = set()
