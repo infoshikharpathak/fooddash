@@ -1,5 +1,9 @@
 # FoodDash
 
+[![CI](https://github.com/infoshikharpathak/fooddash/actions/workflows/ci.yml/badge.svg)](https://github.com/infoshikharpathak/fooddash/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+
 A fully functional, self-running food delivery app built to generate realistic
 traffic and errors for [logscribe](../logscribe) to observe and analyze.
 FoodDash has zero knowledge of logscribe — it just logs normally to a shared
