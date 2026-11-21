@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-LOG_FILE_PATH = Path("/tmp/fooddash.log")
+LOG_FILE_PATH = Path(os.environ.get("FOODDASH_LOG_FILE", "/tmp/fooddash.log"))
 
 _EXTRA_FIELDS = ("request_id", "endpoint", "user_id", "duration_ms", "error_type")
 
