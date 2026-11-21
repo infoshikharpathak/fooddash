@@ -16,7 +16,7 @@ from core.exceptions import (
 from core.background import spawn_background
 from core.internal_client import internal_client
 from core.logging_config import get_logger
-from core.models import DeliveryStatus, Order, OrderCreateRequest, OrderStatus
+from core.models import DeliveryStatus, Order, OrderCreateRequest, OrderStatus, PaymentStatus
 from services import delivery, users
 
 logger = get_logger("order")
@@ -118,6 +118,11 @@ async def create_order(payload: OrderCreateRequest, request: Request) -> Order:
         items=payload.items,
         total=round(total, 2),
         status=OrderStatus.CONFIRMED,
+        # Placeholder: orders are marked paid on creation until the bank
+        # payment flow (via Ironclad) replaces this.
+        payment_status=PaymentStatus.PAID,
+        # Snapshot, not a reference — a later address change doesn't reroute it.
+        delivery_address=user.address,
         created_at=datetime.now(timezone.utc).isoformat(),
         request_id=request_id,
     )

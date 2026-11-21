@@ -47,6 +47,12 @@ class OrderStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class PaymentStatus(str, Enum):
+    PENDING = "pending"
+    PAID = "paid"
+    FAILED = "failed"
+
+
 class OrderCreateRequest(BaseModel):
     restaurant_id: str
     items: list[OrderItem]
@@ -60,6 +66,8 @@ class Order(BaseModel):
     items: list[OrderItem]
     total: float
     status: OrderStatus = OrderStatus.CREATED
+    payment_status: PaymentStatus = PaymentStatus.PENDING
+    delivery_address: str
     created_at: str
     request_id: str | None = None
 
