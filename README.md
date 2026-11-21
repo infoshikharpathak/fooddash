@@ -121,6 +121,7 @@ streamlit run app.py
 | `INTERNAL_BASE_URL` | `http://localhost:8000` | Base URL the traffic simulator drives the app through |
 | `AUTO_TRAFFIC` | `true` | Whether the traffic simulator runs on startup |
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
+| `DELIVERY_STAGE_DELAY_MIN` / `_MAX` | `1` / `4` | Seconds (uniform range) before each delivery lifecycle stage |
 | `FOODDASH_API_URL` | `http://localhost:8000` | Backend URL the dashboard polls (set to `http://app:8000` under Docker Compose) |
 
 ## Demo flow

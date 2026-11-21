@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException, Request
 from core.exceptions import (
     DuplicateOrderError,
     InventoryConflictError,
-    PaymentTimeoutError,
     RestaurantOfflineError,
 )
 from core.background import spawn_background
@@ -184,5 +183,7 @@ async def update_order_status(order_id: str, status: DeliveryStatus) -> Order:
     order = _ORDERS.get(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
-    order.status = _DELIVERY_TO_ORDER_STATUS.get(status, order.status)
+    # Cancellation is terminal: a delivery still in flight must not revive the order.
+    if order.status != OrderStatus.CANCELLED:
+        order.status = _DELIVERY_TO_ORDER_STATUS.get(status, order.status)
     return order
