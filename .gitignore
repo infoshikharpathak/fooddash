@@ -26,3 +26,13 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Env files
+.env
+
+# Test / agent-service artifacts
+.pytest_cache/
+anvil_traces/
+agent_forge_traces.db
+anvil_forge_traces.jsonl
+bastion_traces.jsonl

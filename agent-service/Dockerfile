@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# git is needed for pip to fetch the bastion git dependency (and the anvil-ai / agent-forge it pins).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# The bastion config lives at the repo root, outside this build context:
+# mount it and point ANVIL_CONFIG_PATH at it, e.g.
+#   docker run -v "$PWD/anvil-fooddash.yaml:/app/anvil-fooddash.yaml" \
+#     -e ANVIL_CONFIG_PATH=/app/anvil-fooddash.yaml -e OPENAI_API_KEY \
+#     -e FOODDASH_BASE_URL=http://host.docker.internal:8000 -p 8100:8100 fooddash-agent
+EXPOSE 8100
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8100"]
