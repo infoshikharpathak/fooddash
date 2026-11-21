@@ -1,0 +1,205 @@
+# bastion config for FoodDash: the fooddash app, its tools, and the
+# ordering agent. bastion compiles the agent's tools, sequences,
+# strictness and trust overrides into the Anvil policy that governs every
+# call, so that policy is the single source of truth for what the agent may do.
+# Tool IDs are "fooddash.<tool>", agent IDs "fooddash.<agent>"; inside a
+# fooddash agent, bare tool names resolve to fooddash's tools.
+apps:
+  fooddash:
+    base_url: "http://localhost:8000"   # agent-service's FOODDASH_BASE_URL overrides this
+    tools:
+      # ── Read-only tools (trusted — no side effects) ──────────────────
+      list_restaurants:
+        path: "/restaurants"
+        method: GET
+        description: "List the restaurants that are currently online, with their cuisine and menus."
+        trust: trusted
+        timeout: 5
+        injection_scanning: false
+        parameters:
+          type: object
+          properties: {}
+
+      get_menu:
+        path: "/restaurants/{restaurant_id}/menu"
+        method: GET
+        description: "Get a restaurant's menu: item IDs, names, prices and whether each item is available."
+        trust: trusted
+        timeout: 5
+        injection_scanning: false
+        parameters:
+          type: object
+          properties:
+            restaurant_id:
+              type: string
+              description: "The restaurant ID (e.g. rest_1)"
+          required: [restaurant_id]
+
+      get_user:
+        path: "/users/{user_id}"
+        method: GET
+        description: "Get the user's profile: name, email, delivery address and balance."
+        trust: trusted
+        timeout: 5
+        injection_scanning: false
+        parameters:
+          type: object
+          properties:
+            user_id:
+              type: string
+              description: "The user to look up"
+          required: [user_id]
+        response_schema:
+          required_fields: ["id", "name", "address"]
+
+      get_order:
+        path: "/orders/{order_id}"
+        method: GET
+        description: "Check an order's status, items, total, payment status and delivery address."
+        trust: trusted
+        timeout: 5
+        injection_scanning: false
+        parameters:
+          type: object
+          properties:
+            order_id:
+              type: string
+              description: "The order ID returned by place_order"
+          required: [order_id]
+        response_schema:
+          required_fields: ["id", "status", "total"]
+
+      list_orders:
+        path: "/orders"
+        method: GET
+        description: "List recent orders, most recent first."
+        trust: trusted
+        timeout: 5
+        injection_scanning: false
+        parameters:
+          type: object
+          properties:
+            limit:
+              type: integer
+              description: "Max orders to return (default 100)"
+
+      # ── Write tools (untrusted — change state, need governance) ──────
+      update_address:
+        path: "/users/{user_id}/address"
+        method: PUT
+        description: "Update the user's delivery address. Applies to orders placed afterwards."
+        trust: untrusted
+        timeout: 5
+        injection_scanning: true
+        parameters:
+          type: object
+          properties:
+            user_id:
+              type: string
+              description: "The user whose address to change"
+            address:
+              type: string
+              description: "The new delivery address"
+          required: [user_id, address]
+        response_schema:
+          required_fields: ["id", "address"]
+
+      place_order:
+        path: "/orders"
+        method: POST
+        description: "Place a food order at one restaurant. Delivers to the user's current address."
+        trust: untrusted
+        timeout: 10
+        injection_scanning: true
+        parameters:
+          type: object
+          properties:
+            restaurant_id:
+              type: string
+              description: "The restaurant to order from"
+            user_id:
+              type: string
+              description: "The user placing the order"
+            items:
+              type: array
+              description: "The menu items to order"
+              items:
+                type: object
+                properties:
+                  menu_item_id:
+                    type: string
+                    description: "Menu item ID from get_menu (e.g. item_1)"
+                  quantity:
+                    type: integer
+                    description: "How many (default 1)"
+                required: [menu_item_id]
+          required: [restaurant_id, user_id, items]
+        response_schema:
+          required_fields: ["id", "status", "total"]
+
+      cancel_order:
+        path: "/orders/{order_id}/cancel"
+        method: PUT
+        description: "Cancel an order. Only works before the driver has picked it up."
+        trust: untrusted
+        timeout: 5
+        injection_scanning: false
+        parameters:
+          type: object
+          properties:
+            order_id:
+              type: string
+              description: "The order to cancel"
+          required: [order_id]
+        response_schema:
+          required_fields: ["id", "status"]
+
+# ── Agents ───────────────────────────────────────────────────────
+agents:
+  fooddash.ordering_agent:
+    description: "Governance policy for AI agents ordering food on FoodDash. Agents must see a restaurant's menu before placing an order."
+    prompt_version: v1
+    backend: openai
+    model: gpt-4o-mini   # agent-service's OPENAI_MODEL env var overrides this
+    instructions: |
+      You are the FoodDash ordering assistant. You help users browse restaurants, view menus, and place food orders.
+      The user is "demo_user". Always use this user_id.
+      Before placing an order, always call list_restaurants and get_menu so the user knows what's available.
+      Confirm the order details (restaurant, items, quantities, total estimate) before calling place_order.
+      You can check order status and cancel orders that haven't been picked up yet.
+      Be concise and helpful. Format prices with $.
+    tools:
+      - list_restaurants
+      - get_menu
+      - get_user
+      - update_address
+      - place_order
+      - get_order
+      - cancel_order
+      - list_orders
+    sequences:
+      # Must see the menu before placing an order
+      - before: place_order
+        requires: [get_menu]
+        match_fields: []
+    strictness: strict
+    trust_overrides:
+      # Read tools are trusted; writes stay untrusted (default)
+      list_restaurants: trusted
+      get_menu: trusted
+      get_user: trusted
+      get_order: trusted
+      list_orders: trusted
+
+# Injection classifier for Anvil's scans: same provider and key as the agent.
+classifier:
+  enabled: true
+  provider: openai
+  model: gpt-4o-mini
+
+settings:
+  injection_scanning: true
+  default_strictness: strict
+  default_trust: untrusted
+  session_ttl: 3600
+  trace_fallback_dir: "./anvil_traces"
