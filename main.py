@@ -21,7 +21,7 @@ from core.exceptions import (
 from core.background import spawn_background
 from core.internal_client import register_app
 from core.logging_config import get_logger
-from services import delivery, order, restaurant
+from services import delivery, order, restaurant, users
 from traffic.simulator import run_traffic_simulator
 
 logger = get_logger("main")
@@ -32,6 +32,7 @@ register_app(app)
 app.include_router(restaurant.router)
 app.include_router(order.router)
 app.include_router(delivery.router)
+app.include_router(users.router)
 
 _STATUS_MAP: dict[type[Exception], int] = {
     RestaurantOfflineError: 503,

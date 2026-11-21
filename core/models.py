@@ -5,6 +5,18 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+class User(BaseModel):
+    id: str
+    name: str
+    email: str
+    address: str
+    balance: float = 500.0
+
+
+class AddressUpdateRequest(BaseModel):
+    address: str = Field(min_length=1)
+
+
 class MenuItem(BaseModel):
     id: str
     name: str

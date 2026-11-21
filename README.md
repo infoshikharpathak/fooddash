@@ -40,6 +40,9 @@ against restaurant via HTTP, delivery notifies order via HTTP, and a
 a whole customer journey can be correlated across services.
 
 - **restaurant** (`services/restaurant.py`) — in-memory restaurants + menus.
+- **users** (`services/users.py`) — in-memory demo users (`user_1`–`user_4`,
+  plus generic `user_5`–`user_20` for the traffic simulator) with a delivery
+  address and balance. `GET /users/{id}`, `PUT /users/{id}/address`.
 - **order** (`services/order.py`) — order state machine, validates against
   restaurant over HTTP, starts a delivery for each confirmed order as an
   in-process background task.

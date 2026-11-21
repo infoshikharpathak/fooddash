@@ -17,7 +17,7 @@ from core.background import spawn_background
 from core.internal_client import internal_client
 from core.logging_config import get_logger
 from core.models import DeliveryStatus, Order, OrderCreateRequest, OrderStatus
-from services import delivery
+from services import delivery, users
 
 logger = get_logger("order")
 
@@ -78,6 +78,14 @@ async def _fetch_menu(restaurant_id: str, request_id: str) -> dict[str, dict]:
 @router.post("", status_code=201)
 async def create_order(payload: OrderCreateRequest, request: Request) -> Order:
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+
+    user = users.get_user_or_none(payload.user_id)
+    if user is None:
+        logger.warning(
+            f"Order attempted for unknown user {payload.user_id}",
+            extra={"request_id": request_id, "endpoint": "/orders", "user_id": payload.user_id},
+        )
+        raise HTTPException(status_code=404, detail="User not found")
 
     signature = _order_signature(payload)
     now = time.monotonic()
