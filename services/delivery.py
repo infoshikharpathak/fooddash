@@ -1,20 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import random
 
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from core.internal_client import internal_client
 from core.logging_config import get_logger
 from core.models import Delivery, DeliveryStatus
 
 logger = get_logger("delivery")
 
 router = APIRouter(prefix="/delivery", tags=["delivery"])
-
-INTERNAL_BASE_URL = os.environ.get("INTERNAL_BASE_URL", "http://localhost:8000")
 
 _DELIVERIES: dict[str, Delivery] = {}
 _LIFECYCLE_STAGES = [DeliveryStatus.PICKED_UP, DeliveryStatus.IN_TRANSIT, DeliveryStatus.DELIVERED]
@@ -36,8 +34,8 @@ async def _assign_driver(order_id: str) -> Delivery:
 
 
 async def _notify_order_service(order_id: str, status: str) -> None:
-    async with httpx.AsyncClient(timeout=5) as client:
-        response = await client.put(f"{INTERNAL_BASE_URL}/orders/{order_id}/status", params={"status": status})
+    async with internal_client(timeout=5) as client:
+        response = await client.put(f"/orders/{order_id}/status", params={"status": status})
     response.raise_for_status()
 
 

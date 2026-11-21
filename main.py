@@ -19,6 +19,7 @@ from core.exceptions import (
     RestaurantOfflineError,
 )
 from core.background import spawn_background
+from core.internal_client import register_app
 from core.logging_config import get_logger
 from services import delivery, order, restaurant
 from traffic.simulator import run_traffic_simulator
@@ -26,6 +27,7 @@ from traffic.simulator import run_traffic_simulator
 logger = get_logger("main")
 
 app = FastAPI(title="FoodDash", version="0.1.0")
+register_app(app)
 
 app.include_router(restaurant.router)
 app.include_router(order.router)

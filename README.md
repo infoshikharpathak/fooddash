@@ -31,9 +31,11 @@ file; logscribe taps that log stream externally.
 ```
 
 All three "services" are routers mounted on one FastAPI app (`main.py`), but
-they talk to each other over real internal HTTP calls (not direct Python
-calls) so the logs look like genuine service-to-service traffic — order
-validates against restaurant via HTTP, delivery notifies order via HTTP, and a
+they talk to each other over internal HTTP calls (not direct Python calls) so
+the logs look like genuine service-to-service traffic. Those calls go through
+the app in-process via an ASGI transport (`core/internal_client.py`) — the full
+middleware/logging stack runs, but there's no network hop. Order validates
+against restaurant via HTTP, delivery notifies order via HTTP, and a
 `request_id` is propagated through every hop via the `X-Request-ID` header so
 a whole customer journey can be correlated across services.
 
@@ -113,7 +115,7 @@ streamlit run app.py
 
 | Var | Default | Meaning |
 |---|---|---|
-| `INTERNAL_BASE_URL` | `http://localhost:8000` | Base URL services use to call each other and themselves |
+| `INTERNAL_BASE_URL` | `http://localhost:8000` | Base URL the traffic simulator drives the app through |
 | `AUTO_TRAFFIC` | `true` | Whether the traffic simulator runs on startup |
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
 | `FOODDASH_API_URL` | `http://localhost:8000` | Backend URL the dashboard polls (set to `http://app:8000` under Docker Compose) |

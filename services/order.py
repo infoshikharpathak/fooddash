@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +14,7 @@ from core.exceptions import (
     RestaurantOfflineError,
 )
 from core.background import spawn_background
+from core.internal_client import internal_client
 from core.logging_config import get_logger
 from core.models import DeliveryStatus, Order, OrderCreateRequest, OrderStatus
 from services import delivery
@@ -34,8 +34,6 @@ _DELIVERY_TO_ORDER_STATUS: dict[DeliveryStatus, OrderStatus] = {
     DeliveryStatus.FAILED: OrderStatus.CANCELLED,
 }
 
-INTERNAL_BASE_URL = os.environ.get("INTERNAL_BASE_URL", "http://localhost:8000")
-
 _ORDERS: dict[str, Order] = {}
 
 # Duplicate-order detection: same user + restaurant + items within this window = a
@@ -50,10 +48,10 @@ def _order_signature(payload: OrderCreateRequest) -> tuple[str, str, str]:
 
 
 async def _fetch_menu(restaurant_id: str, request_id: str) -> dict[str, dict]:
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with internal_client(timeout=10) as client:
         try:
             response = await client.get(
-                f"{INTERNAL_BASE_URL}/restaurants/{restaurant_id}/menu",
+                f"/restaurants/{restaurant_id}/menu",
                 headers={"X-Request-ID": request_id},
             )
             if response.status_code == 404:
