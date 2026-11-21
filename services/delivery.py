@@ -9,8 +9,6 @@ import httpx
 import redis.asyncio as redis
 from fastapi import APIRouter, HTTPException
 
-from core.exceptions import DeliveryStatusUpdateError, NoDriversAvailableError
-from core.failure_injection import random_failure
 from core.logging_config import get_logger
 from core.models import Delivery, DeliveryStatus
 
@@ -23,10 +21,8 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 _DELIVERIES: dict[str, Delivery] = {}
 _LIFECYCLE_STAGES = [DeliveryStatus.PICKED_UP, DeliveryStatus.IN_TRANSIT, DeliveryStatus.DELIVERED]
-_TIMEOUT_PROBABILITY = 0.04
 
 
-@random_failure(probability=0.05, failure_type="internal_server_error", exception=NoDriversAvailableError)
 async def _assign_driver(order_id: str) -> Delivery:
     delivery = Delivery(
         order_id=order_id,
@@ -42,7 +38,6 @@ async def _assign_driver(order_id: str) -> Delivery:
     return delivery
 
 
-@random_failure(probability=0.06, failure_type="connection_error", exception=DeliveryStatusUpdateError)
 async def _notify_order_service(order_id: str, status: str) -> None:
     async with httpx.AsyncClient(timeout=5) as client:
         response = await client.put(f"{INTERNAL_BASE_URL}/orders/{order_id}/status", params={"status": status})
@@ -53,24 +48,10 @@ async def run_delivery_lifecycle(order_id: str) -> None:
     """Drives a delivery through its full lifecycle with per-stage delays. Launched
     as a fire-and-forget background task whenever an order is confirmed, so any
     failure here is logged directly rather than raised to a nonexistent caller."""
-    try:
-        await _assign_driver(order_id)
-    except NoDriversAvailableError as exc:
-        logger.error(
-            f"No drivers available for order {order_id}: {exc}",
-            extra={"endpoint": "delivery.assign", "error_type": "NoDriversAvailableError"},
-        )
-        return
+    await _assign_driver(order_id)
 
     for stage in _LIFECYCLE_STAGES:
         await asyncio.sleep(random.uniform(1, 4))
-
-        if random.random() < _TIMEOUT_PROBABILITY:
-            logger.error(
-                f"Delivery timeout for order {order_id} approaching stage {stage.value}",
-                extra={"endpoint": "delivery.lifecycle", "error_type": "DeliveryTimeoutError"},
-            )
-            return
 
         delivery = _DELIVERIES.get(order_id)
         if delivery is None:
@@ -79,13 +60,8 @@ async def run_delivery_lifecycle(order_id: str) -> None:
 
         try:
             await _notify_order_service(order_id, stage.value)
-        except DeliveryStatusUpdateError as exc:
-            logger.error(
-                f"Failed to notify order service for {order_id}: {exc}",
-                extra={"endpoint": "delivery.lifecycle", "error_type": "DeliveryStatusUpdateError"},
-            )
         except httpx.HTTPError as exc:
-            # A real (non-injected) failure calling back to the order service —
+            # A failure calling back to the order service —
             # this is a background task with no caller to propagate to, so it
             # must be logged and swallowed here or it leaks as an unretrieved
             # asyncio task exception instead of a readable log line.

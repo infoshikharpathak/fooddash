@@ -16,7 +16,6 @@ from core.exceptions import (
     RedisUnavailableError,
     RestaurantOfflineError,
 )
-from core.failure_injection import random_failure
 from core.logging_config import get_logger
 from core.models import DeliveryStatus, Order, OrderCreateRequest, OrderStatus
 
@@ -71,9 +70,8 @@ async def _fetch_menu(restaurant_id: str, request_id: str) -> dict[str, dict]:
                 raise HTTPException(status_code=404, detail="Restaurant not found")
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # The restaurant service call itself failed (its own injected failure
-            # cascading here) — surface as a clean, logged FoodDashError instead of
-            # letting a raw httpx exception crash the ASGI app.
+            # The restaurant service call itself failed — surface as a clean, logged
+            # FoodDashError instead of letting a raw httpx exception crash the ASGI app.
             logger.error(
                 f"Restaurant service call failed for {restaurant_id}: {exc}",
                 extra={"request_id": request_id, "endpoint": "/orders", "error_type": "RestaurantOfflineError"},
@@ -90,8 +88,6 @@ async def _fetch_menu(restaurant_id: str, request_id: str) -> dict[str, dict]:
 
 
 @router.post("", status_code=201)
-@random_failure(probability=0.10, failure_type="timeout", exception=PaymentTimeoutError)
-@random_failure(probability=0.06, failure_type="internal_server_error", exception=RedisUnavailableError)
 async def create_order(payload: OrderCreateRequest, request: Request) -> Order:
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
 

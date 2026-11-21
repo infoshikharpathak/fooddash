@@ -9,19 +9,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from core.exceptions import (
-    ConnectionFailure,
     DeliveryStatusUpdateError,
     DeliveryTimeoutError,
     DuplicateOrderError,
     FoodDashError,
-    InternalServerFailure,
     InventoryConflictError,
     MenuItemUnavailableError,
     NoDriversAvailableError,
     PaymentTimeoutError,
     RedisUnavailableError,
     RestaurantOfflineError,
-    TimeoutFailure,
 )
 from core.logging_config import get_logger
 from services import delivery, order, restaurant
@@ -36,9 +33,6 @@ app.include_router(order.router)
 app.include_router(delivery.router)
 
 _STATUS_MAP: dict[type[Exception], int] = {
-    TimeoutFailure: 504,
-    ConnectionFailure: 503,
-    InternalServerFailure: 500,
     RestaurantOfflineError: 503,
     MenuItemUnavailableError: 409,
     InventoryConflictError: 409,

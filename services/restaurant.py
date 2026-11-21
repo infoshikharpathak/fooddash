@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from core.exceptions import RestaurantOfflineError
-from core.failure_injection import random_failure
 from core.logging_config import get_logger
 from core.models import MenuItem, Restaurant
 
@@ -79,15 +78,12 @@ _RESTAURANTS: dict[str, Restaurant] = {
 
 
 @router.get("")
-@random_failure(probability=0.05, failure_type="slow_response")
 async def list_restaurants() -> list[Restaurant]:
     logger.info("Listing restaurants", extra={"endpoint": "/restaurants"})
     return [r for r in _RESTAURANTS.values() if r.is_online]
 
 
 @router.get("/{restaurant_id}/menu")
-@random_failure(probability=0.08, failure_type="connection_error", exception=RestaurantOfflineError)
-@random_failure(probability=0.04, failure_type="slow_response")
 async def get_menu(restaurant_id: str) -> list[MenuItem]:
     restaurant = _RESTAURANTS.get(restaurant_id)
     if restaurant is None:

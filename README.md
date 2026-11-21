@@ -47,11 +47,6 @@ a whole customer journey can be correlated across services.
   full customer journeys (browse → menu → order → track/cancel) against the
   app's own HTTP endpoints indefinitely, including edge cases (ordering
   unavailable items, double-submitting, cancelling mid-delivery).
-- **failure injection** (`core/failure_injection.py`) — a decorator that wraps
-  already-working endpoints with a probabilistic chance of failing (timeout,
-  connection error, internal server error, or an unfailing slow response).
-  Every endpoint's real implementation always succeeds on its own; failures
-  are layered on top, never baked into the business logic.
 
 ## Logging contract
 
@@ -87,8 +82,8 @@ Four tabs:
 Powered by three new read-only backend endpoints: `GET /orders`,
 `GET /delivery` (list views — the existing `GET /orders/{id}` and
 `GET /delivery/{order_id}` are unchanged), and `GET /stats` (aggregate
-counts). None of these have side effects or failure injection — purely for
-observing state, same spirit as the log stream logscribe taps.
+counts). None of these have side effects — purely for observing state, same
+spirit as the log stream logscribe taps.
 
 ## Quick start
 
@@ -124,7 +119,6 @@ streamlit run app.py
 | `INTERNAL_BASE_URL` | `http://localhost:8000` | Base URL services use to call each other and themselves |
 | `AUTO_TRAFFIC` | `true` | Whether the traffic simulator runs on startup |
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
-| `FAILURE_RATE` | `0.15` | Global scaling factor for every injected failure's odds |
 | `FOODDASH_API_URL` | `http://localhost:8000` | Backend URL the dashboard polls (set to `http://app:8000` under Docker Compose) |
 
 ## Demo flow
@@ -139,9 +133,10 @@ logscribe watch --file /tmp/fooddash.log
 ```
 
 Open http://localhost:8501 for the live dashboard, then walk away. Traffic
-keeps flowing, ~15% of requests fail with varied error types, logscribe
-builds up a history of root-cause analyses, and the dashboard's metrics and
-charts update on their own.
+keeps flowing, the simulator's edge cases (unavailable items, double-submits,
+cancellations) produce real business-rule errors, logscribe builds up a
+history of root-cause analyses, and the dashboard's metrics and charts update
+on their own.
 
 ## Out of scope
 
