@@ -26,10 +26,6 @@ class DuplicateOrderError(FoodDashError):
     pass
 
 
-class RedisUnavailableError(FoodDashError):
-    pass
-
-
 class NoDriversAvailableError(FoodDashError):
     pass
 

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import random
 
 import httpx
-import redis.asyncio as redis
 from fastapi import APIRouter, HTTPException
 
 from core.logging_config import get_logger
@@ -17,7 +15,6 @@ logger = get_logger("delivery")
 router = APIRouter(prefix="/delivery", tags=["delivery"])
 
 INTERNAL_BASE_URL = os.environ.get("INTERNAL_BASE_URL", "http://localhost:8000")
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
 
 _DELIVERIES: dict[str, Delivery] = {}
 _LIFECYCLE_STAGES = [DeliveryStatus.PICKED_UP, DeliveryStatus.IN_TRANSIT, DeliveryStatus.DELIVERED]
@@ -46,7 +43,8 @@ async def _notify_order_service(order_id: str, status: str) -> None:
 
 async def run_delivery_lifecycle(order_id: str) -> None:
     """Drives a delivery through its full lifecycle with per-stage delays. Launched
-    as a fire-and-forget background task whenever an order is confirmed, so any
+    as a fire-and-forget background task by the order service whenever an order
+    is confirmed, so any
     failure here is logged directly rather than raised to a nonexistent caller."""
     await _assign_driver(order_id)
 
@@ -71,33 +69,6 @@ async def run_delivery_lifecycle(order_id: str) -> None:
             )
 
     logger.info(f"Order {order_id} delivered", extra={"endpoint": "delivery.lifecycle"})
-
-
-async def subscribe_to_orders() -> None:
-    """Background task started at app startup: subscribes to confirmed orders over
-    Redis pub/sub and kicks off a delivery lifecycle for each one. Retries with
-    backoff so a Redis outage at boot (or mid-run) doesn't crash the whole app."""
-    while True:
-        try:
-            redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-            pubsub = redis_client.pubsub()
-            await pubsub.subscribe("order.confirmed")
-            logger.info("Delivery service subscribed to order.confirmed", extra={"endpoint": "delivery.subscribe"})
-
-            async for message in pubsub.listen():
-                if message["type"] != "message":
-                    continue
-                try:
-                    order = json.loads(message["data"])
-                except json.JSONDecodeError:
-                    continue
-                asyncio.create_task(run_delivery_lifecycle(order["id"]))
-        except Exception as exc:
-            logger.error(
-                f"Redis subscription lost: {exc}",
-                extra={"endpoint": "delivery.subscribe", "error_type": type(exc).__name__},
-            )
-            await asyncio.sleep(3)
 
 
 @router.put("/{order_id}/status")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
 from collections import Counter
@@ -17,9 +16,9 @@ from core.exceptions import (
     MenuItemUnavailableError,
     NoDriversAvailableError,
     PaymentTimeoutError,
-    RedisUnavailableError,
     RestaurantOfflineError,
 )
+from core.background import spawn_background
 from core.logging_config import get_logger
 from services import delivery, order, restaurant
 from traffic.simulator import run_traffic_simulator
@@ -38,7 +37,6 @@ _STATUS_MAP: dict[type[Exception], int] = {
     InventoryConflictError: 409,
     PaymentTimeoutError: 402,
     DuplicateOrderError: 409,
-    RedisUnavailableError: 503,
     NoDriversAvailableError: 503,
     DeliveryTimeoutError: 504,
     DeliveryStatusUpdateError: 502,
@@ -101,20 +99,7 @@ async def stats() -> dict:
     }
 
 
-_background_tasks: set[asyncio.Task] = set()
-
-
-def _spawn_background(coro) -> None:
-    # asyncio only keeps a weak reference to tasks created via create_task — without
-    # holding a strong reference ourselves, the task can be garbage-collected mid-run
-    # (this silently killed the Redis subscriber during testing).
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-
 @app.on_event("startup")
 async def on_startup() -> None:
     logger.info("FoodDash starting up", extra={"endpoint": "startup"})
-    _spawn_background(delivery.subscribe_to_orders())
-    _spawn_background(run_traffic_simulator())
+    spawn_background(run_traffic_simulator())

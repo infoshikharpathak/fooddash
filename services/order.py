@@ -6,18 +6,18 @@ import uuid
 from datetime import datetime, timezone
 
 import httpx
-import redis.asyncio as redis
 from fastapi import APIRouter, HTTPException, Request
 
 from core.exceptions import (
     DuplicateOrderError,
     InventoryConflictError,
     PaymentTimeoutError,
-    RedisUnavailableError,
     RestaurantOfflineError,
 )
+from core.background import spawn_background
 from core.logging_config import get_logger
 from core.models import DeliveryStatus, Order, OrderCreateRequest, OrderStatus
+from services import delivery
 
 logger = get_logger("order")
 
@@ -35,23 +35,13 @@ _DELIVERY_TO_ORDER_STATUS: dict[DeliveryStatus, OrderStatus] = {
 }
 
 INTERNAL_BASE_URL = os.environ.get("INTERNAL_BASE_URL", "http://localhost:8000")
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-ORDER_CONFIRMED_CHANNEL = "order.confirmed"
 
 _ORDERS: dict[str, Order] = {}
-_redis_client: redis.Redis | None = None
 
 # Duplicate-order detection: same user + restaurant + items within this window = a
 # double-click/double-submit, not two legitimately separate orders.
 _DUPLICATE_WINDOW_SECONDS = 5.0
 _recent_signatures: dict[tuple[str, str, str], float] = {}
-
-
-def _get_redis() -> redis.Redis:
-    global _redis_client
-    if _redis_client is None:
-        _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    return _redis_client
 
 
 def _order_signature(payload: OrderCreateRequest) -> tuple[str, str, str]:
@@ -127,14 +117,7 @@ async def create_order(payload: OrderCreateRequest, request: Request) -> Order:
     )
     _ORDERS[order.id] = order
 
-    try:
-        await _get_redis().publish(ORDER_CONFIRMED_CHANNEL, order.model_dump_json())
-    except Exception as exc:
-        logger.error(
-            f"Failed to publish order {order.id} to Redis: {exc}",
-            extra={"request_id": request_id, "endpoint": "/orders", "error_type": "RedisUnavailableError"},
-        )
-        raise RedisUnavailableError(str(exc)) from exc
+    spawn_background(delivery.run_delivery_lifecycle(order.id))
 
     logger.info(
         f"Order {order.id} confirmed, total ${order.total}",

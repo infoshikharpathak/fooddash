@@ -39,10 +39,11 @@ a whole customer journey can be correlated across services.
 
 - **restaurant** (`services/restaurant.py`) — in-memory restaurants + menus.
 - **order** (`services/order.py`) — order state machine, validates against
-  restaurant over HTTP, publishes confirmed orders to Redis.
-- **delivery** (`services/delivery.py`) — subscribes to confirmed orders over
-  Redis pub/sub, runs each delivery through its lifecycle in the background,
-  calls back to order over HTTP as status changes.
+  restaurant over HTTP, starts a delivery for each confirmed order as an
+  in-process background task.
+- **delivery** (`services/delivery.py`) — runs each delivery through its
+  lifecycle in the background, calls back to order over HTTP as status
+  changes.
 - **traffic simulator** (`traffic/simulator.py`) — launches on startup, drives
   full customer journeys (browse → menu → order → track/cancel) against the
   app's own HTTP endpoints indefinitely, including edge cases (ordering
@@ -87,13 +88,13 @@ spirit as the log stream logscribe taps.
 
 ## Quick start
 
-### Docker Compose (Redis + app + dashboard together)
+### Docker Compose (app + dashboard together)
 
 ```bash
 docker compose up --build
 ```
 
-Starts Redis, the backend (generating traffic immediately, no separate script
+Starts the backend (generating traffic immediately, no separate script
 to run), and the dashboard at http://localhost:8501.
 
 ### Local dev (no Docker)
@@ -101,9 +102,6 @@ to run), and the dashboard at http://localhost:8501.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# needs a Redis instance reachable at REDIS_URL (default redis://localhost:6379)
-redis-server &
 
 uvicorn main:app --reload
 
@@ -115,7 +113,6 @@ streamlit run app.py
 
 | Var | Default | Meaning |
 |---|---|---|
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection for order confirmation pub/sub |
 | `INTERNAL_BASE_URL` | `http://localhost:8000` | Base URL services use to call each other and themselves |
 | `AUTO_TRAFFIC` | `true` | Whether the traffic simulator runs on startup |
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
