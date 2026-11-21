@@ -114,6 +114,18 @@ uvicorn main:app --reload
 streamlit run app.py
 ```
 
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/
+```
+
+The suite drives the real FastAPI app in memory through `httpx.AsyncClient`
+with an ASGI transport — no server, no network, no mocks. Delivery stage
+delays are set to 0 and the traffic simulator is off; test logs go to a
+separate file (`FOODDASH_LOG_FILE`) so they never mix into `/tmp/fooddash.log`.
+
 ## Config (env vars)
 
 | Var | Default | Meaning |
@@ -122,6 +134,7 @@ streamlit run app.py
 | `AUTO_TRAFFIC` | `true` | Whether the traffic simulator runs on startup |
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
 | `DELIVERY_STAGE_DELAY_MIN` / `_MAX` | `1` / `4` | Seconds (uniform range) before each delivery lifecycle stage |
+| `FOODDASH_LOG_FILE` | `/tmp/fooddash.log` | Where the JSON log stream is written (stdout too) |
 | `FOODDASH_API_URL` | `http://localhost:8000` | Backend URL the dashboard polls (set to `http://app:8000` under Docker Compose) |
 
 ## Demo flow
