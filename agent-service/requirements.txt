@@ -7,4 +7,4 @@ pyyaml>=6.0
 
 # The bastion SDK (brings anvil-ai and agent-forge at the commits it pins).
 # Pinned by full commit SHA; the SDK lives in the repo's sdk/ folder.
-bastion @ git+https://github.com/infoshikharpathak/bastion.git@3e7529c4c01046480b2a7fca388f2cec6172280d#subdirectory=sdk
+bastion @ git+https://github.com/infoshikharpathak/bastion.git@7e476f2c57be04dd4308cf53d9f76fcf9378487f#subdirectory=sdk

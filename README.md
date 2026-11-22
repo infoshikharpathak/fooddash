@@ -221,6 +221,10 @@ checks every tool call against the policy in
   service (not the model) adds "Payment of $25.00 to FoodDash is waiting for
   your approval in your Ironclad app." after the reply, from the structured
   tool result, once. The model only confirms in its own words, without codes.
+- **Requested payments:** when a reply is labeled `unrequested_action`,
+  `app/requested.py` (no LLM) decides first: a `pay_for_order` for an order
+  the user confirmed in this session ("yes", "I confirm", "go ahead"), with
+  no withheld tool response in the session, isn't flagged.
 - **Output check:** if the reply is blocked, or delivered but labeled
   `unrequested_action`, the service flags that turn's payment request
   through `POST /orders/{id}/payment/flag`, which forwards to Ironclad: it
