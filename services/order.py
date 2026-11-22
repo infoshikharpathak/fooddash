@@ -154,14 +154,13 @@ async def create_order(payload: OrderCreateRequest, request: Request) -> Order:
     return order
 
 
-def _pay_response(order: Order, channel: str, *, accepted: bool, message: str, ironclad: dict | None = None,
-                  error: str | None = None) -> PayResponse:
+def _pay_response(order: Order, channel: str, *, message: str, ironclad: dict | None = None) -> PayResponse:
     ironclad = ironclad or {}
     return PayResponse(
-        order_id=order.id, accepted=accepted, payment_status=order.payment_status,
+        order_id=order.id, payment_status=order.payment_status,
         payment_request_id=order.payment_request_id, amount=order.total, channel=channel,
         ironclad_status=ironclad.get("status"), merchant_display_name=ironclad.get("merchant_display_name"),
-        expires_at=ironclad.get("expires_at"), error=error, message=message,
+        expires_at=ironclad.get("expires_at"), message=message,
     )
 
 
@@ -170,9 +169,8 @@ async def pay_for_order(order_id: str, request: Request, body: PayRequest | None
     """Ask Ironclad to collect this order's total from the user. Nothing is
     paid until the user approves it with the OTP in Ironclad.
 
-    Ironclad refusing the request (e.g. AGENT_PAYMENTS_NOT_ALLOWED) is a 200
-    with accepted=false and the reason: an agent calling this through Anvil
-    gets the response body, but not the body of an error response."""
+    If Ironclad refuses, its status code is passed on (e.g. 403 for
+    AGENT_PAYMENTS_NOT_ALLOWED) with {"detail": {"error", "message"}}."""
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
     channel = (body or PayRequest()).channel
     order = _ORDERS.get(order_id)
@@ -183,12 +181,12 @@ async def pay_for_order(order_id: str, request: Request, body: PayRequest | None
         raise HTTPException(status_code=409, detail="This order doesn't take an Ironclad payment "
                                                     "(payments are disabled or the user has no Ironclad account).")
     if order.payment_status == PaymentStatus.PAID:
-        return _pay_response(order, channel, accepted=True, message="This order is already paid.")
+        return _pay_response(order, channel, message="This order is already paid.")
     if order.status == OrderStatus.CANCELLED or order.payment_status == PaymentStatus.FAILED:
         raise HTTPException(status_code=409, detail=f"Order is {order.status.value} (payment "
                                                     f"{order.payment_status.value}); it can't be paid.")
     if order.payment_request_id is not None:
-        return _pay_response(order, channel, accepted=True, message=(
+        return _pay_response(order, channel, message=(
             "A payment request for this order is already waiting for the user to approve it with the OTP "
             "in Ironclad."))
 
@@ -197,17 +195,20 @@ async def pay_for_order(order_id: str, request: Request, body: PayRequest | None
                                                 channel=channel, request_id=request_id)
     except payments.IroncladError as exc:
         if exc.status_code is None or exc.status_code >= 500:
-            raise HTTPException(status_code=502, detail=f"Ironclad is unavailable: {exc.message}") from exc
+            raise HTTPException(status_code=502, detail={
+                "error": "IRONCLAD_UNAVAILABLE", "message": f"Ironclad is unavailable: {exc.message}"}) from exc
         logger.warning(
             f"Ironclad refused payment for order {order.id}: {exc.code}",
             extra={"request_id": request_id, "endpoint": "/orders/{id}/pay", "error_type": exc.code},
         )
-        return _pay_response(order, channel, accepted=False, error=exc.code,
-                             message=f"Ironclad refused the payment: {exc.message}")
+        # 401 means FoodDash's own key is wrong: that's our problem, not the caller's.
+        status = 502 if exc.status_code == 401 else exc.status_code
+        raise HTTPException(status_code=status, detail={
+            "error": exc.code, "message": f"Ironclad refused the payment: {exc.message}"}) from exc
 
     order.payment_request_id = result["payment_request_id"]
     spawn_background(_settle_payment(order.id, order.payment_request_id, request_id))
-    return _pay_response(order, channel, accepted=True, ironclad=result, message=(
+    return _pay_response(order, channel, ironclad=result, message=(
         f"Payment of ${order.total:.2f} requested. The user must approve it with the OTP in Ironclad; "
         "the order is not paid until then."))
 
@@ -231,6 +232,9 @@ async def _settle_payment(order_id: str, payment_request_id: str, request_id: st
         spawn_background(delivery.run_delivery_lifecycle(order_id))
         return
     order.payment_status = PaymentStatus.FAILED
+    if order.status == OrderStatus.CANCELLED:  # we cancelled it (and withdrew the request)
+        logger.info(f"Payment {outcome} for cancelled order {order_id}", extra=extra)
+        return
     if order.status not in (OrderStatus.PICKED_UP, OrderStatus.DELIVERED):
         order.status = OrderStatus.CANCELLED
     logger.warning(f"Payment {outcome} for order {order_id}; order cancelled",
@@ -275,7 +279,33 @@ async def cancel_order(order_id: str, request: Request) -> Order:
 
     order.status = OrderStatus.CANCELLED
     logger.info(f"Order {order_id} cancelled", extra={"request_id": request_id, "endpoint": "/orders/{id}/cancel"})
+    if order.payment_request_id is not None and order.payment_status == PaymentStatus.PENDING:
+        await _withdraw_payment(order, request_id)
     return order
+
+
+async def _withdraw_payment(order: Order, request_id: str) -> None:
+    """The order was cancelled while its payment waits for the user's OTP:
+    withdraw the request in Ironclad so it can't be paid any more."""
+    extra = {"request_id": request_id, "endpoint": "/orders/{id}/cancel", "user_id": order.user_id}
+    try:
+        result = await payments.cancel_payment(order.payment_request_id, order_id=order.id, request_id=request_id)
+    except payments.IroncladError as exc:
+        if exc.code == "PAYMENT_ALREADY_CONFIRMED":
+            # The user paid just before the cancel: the money moved.
+            order.payment_status = PaymentStatus.PAID
+            logger.error(f"Order {order.id} was paid after it was cancelled; refund needed",
+                         extra={**extra, "error_type": "PaidAfterCancel"})
+            return
+        # Unreachable or refused: the poller still watches the request, and
+        # logs a refund if the user pays it anyway.
+        logger.error(f"Couldn't withdraw payment {order.payment_request_id} for cancelled order {order.id}: "
+                     f"{exc.code}", extra={**extra, "error_type": exc.code})
+        return
+    if result.get("status") == "confirmed":  # defensive: Ironclad answers 409 for this
+        order.payment_status = PaymentStatus.PAID
+        return
+    order.payment_status = PaymentStatus.FAILED
 
 
 @router.put("/{order_id}/status")

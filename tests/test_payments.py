@@ -2,6 +2,7 @@
 
 import json
 import os
+import uuid
 
 import httpx
 import pytest
@@ -22,6 +23,7 @@ class FakeIronclad:
         self.requests: list[httpx.Request] = []
         self.status = "pending_otp"
         self.reject: tuple[int, str, str] | None = None
+        self.cancel_conflict = False  # True: the user already confirmed it
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -36,12 +38,22 @@ class FakeIronclad:
                 "merchant_display_name": "FoodDash", "order_ref": body["order_ref"], "channel": body["channel"],
                 "expires_at": "2026-11-22T00:05:00+00:00", "idempotent_replay": False,
             })
+        if request.method == "POST" and request.url.path == "/payments/requests/txn_pay1/cancel":
+            if self.cancel_conflict:
+                return httpx.Response(409, json={"error": "PAYMENT_ALREADY_CONFIRMED",
+                                                 "message": "already confirmed", "details": {}})
+            self.status = "cancelled"
+            return httpx.Response(200, json={"payment_request_id": "txn_pay1", "status": "cancelled"})
         if request.method == "GET" and request.url.path == "/payments/requests/txn_pay1":
             return httpx.Response(200, json={"payment_request_id": "txn_pay1", "status": self.status})
         return httpx.Response(404, json={"error": "NOT_FOUND", "message": request.url.path})
 
     def posted(self) -> list[dict]:
-        return [json.loads(r.content) for r in self.requests if r.method == "POST"]
+        return [json.loads(r.content) for r in self.requests
+                if r.method == "POST" and r.url.path == "/payments/requests"]
+
+    def cancels(self) -> list[str]:
+        return [r.url.path for r in self.requests if r.url.path.endswith("/cancel")]
 
 
 @pytest.fixture
@@ -98,8 +110,8 @@ async def test_checkout_path_pays_then_delivers(client, ironclad):
     r = await client.post(f"/orders/{order['id']}/pay", headers={"X-Request-ID": "req-pay-1"})
     assert r.status_code == 200, r.text
     out = r.json()
-    assert (out["accepted"], out["payment_status"], out["payment_request_id"], out["ironclad_status"]) == (
-        True, "pending", "txn_pay1", "pending_otp")
+    assert (out["payment_status"], out["payment_request_id"], out["ironclad_status"]) == (
+        "pending", "txn_pay1", "pending_otp")
     assert "OTP in Ironclad" in out["message"]
     (sent,) = ironclad.posted()
     assert sent == {"order_ref": order["id"], "amount": 25.0, "user_id": "demo_user", "channel": "checkout",
@@ -135,7 +147,7 @@ async def test_paying_twice_reuses_the_request(client, ironclad):
     order = await order_for(client)
     await client.post(f"/orders/{order['id']}/pay")
     again = (await client.post(f"/orders/{order['id']}/pay", json={"channel": "agent"})).json()
-    assert again["accepted"] is True and again["payment_request_id"] == "txn_pay1"
+    assert again["payment_request_id"] == "txn_pay1" and "already waiting" in again["message"]
     assert len(ironclad.posted()) == 1
     await settle(ironclad, "confirmed")
     assert (await client.post(f"/orders/{order['id']}/pay")).json()["message"] == "This order is already paid."
@@ -152,18 +164,25 @@ async def test_expired_or_cancelled_payment_cancels_the_order(client, ironclad, 
     assert (await client.post(f"/orders/{order['id']}/pay")).status_code == 409
 
 
-async def test_agent_payments_not_allowed_is_a_clear_result(client, ironclad):
+async def test_ironclad_refusal_keeps_its_status_code(client, ironclad):
     ironclad.reject = (403, "AGENT_PAYMENTS_NOT_ALLOWED",
                        "FoodDash is not allowed to request payments from an AI agent.")
     order = await order_for(client)
     r = await client.post(f"/orders/{order['id']}/pay", json={"channel": "agent"})
-    assert r.status_code == 200
-    out = r.json()
-    assert (out["accepted"], out["error"], out["payment_status"], out["payment_request_id"]) == (
-        False, "AGENT_PAYMENTS_NOT_ALLOWED", "pending", None)
-    assert "not allowed to request payments from an AI agent" in out["message"]
+    assert r.status_code == 403
+    assert r.json() == {"detail": {
+        "error": "AGENT_PAYMENTS_NOT_ALLOWED",
+        "message": "Ironclad refused the payment: FoodDash is not allowed to request payments from an AI agent."}}
     await wait_for_background_tasks()
-    assert (await client.get(f"/orders/{order['id']}")).json()["status"] == "confirmed"  # still payable
+    final = (await client.get(f"/orders/{order['id']}")).json()
+    assert (final["status"], final["payment_status"], final["payment_request_id"]) == ("confirmed", "pending", None)
+
+
+async def test_ironclad_rejecting_our_key_is_a_502(client, ironclad):
+    ironclad.reject = (401, "MERCHANT_KEY_INVALID", "Unknown merchant key.")
+    order = await order_for(client)
+    r = await client.post(f"/orders/{order['id']}/pay")
+    assert r.status_code == 502 and r.json()["detail"]["error"] == "MERCHANT_KEY_INVALID"
 
 
 async def test_ironclad_down_is_502(client, ironclad, monkeypatch):
@@ -171,7 +190,8 @@ async def test_ironclad_down_is_502(client, ironclad, monkeypatch):
         raise httpx.ConnectError("refused")
     monkeypatch.setattr(payments, "_transport", httpx.MockTransport(down))
     order = await order_for(client)
-    assert (await client.post(f"/orders/{order['id']}/pay")).status_code == 502
+    r = await client.post(f"/orders/{order['id']}/pay")
+    assert r.status_code == 502 and r.json()["detail"]["error"] == "IRONCLAD_UNAVAILABLE"
 
 
 async def test_outgoing_ironclad_call_is_logged(client, ironclad):
@@ -185,3 +205,44 @@ async def test_outgoing_ironclad_call_is_logged(client, ironclad):
     assert isinstance(post["duration_ms"], int) and post["endpoint"] == "ironclad/payments/requests"
     polled = [l for l in lines if l["message"].startswith("Ironclad GET") and l.get("order_id") == order["id"]]
     assert polled and polled[-1]["status"] == "confirmed"
+
+
+
+# ── cancelling an order whose payment is pending ───────────────────────────
+
+async def test_cancelling_the_order_withdraws_the_ironclad_request(client, ironclad):
+    order = await order_for(client)
+    await client.post(f"/orders/{order['id']}/pay")
+    rid = f"req-cancel-{uuid.uuid4().hex[:8]}"  # the test log file outlives this run
+    r = await client.put(f"/orders/{order['id']}/cancel", headers={"X-Request-ID": rid})
+    assert r.status_code == 200
+    assert (r.json()["status"], r.json()["payment_status"]) == ("cancelled", "failed")
+    assert ironclad.cancels() == ["/payments/requests/txn_pay1/cancel"]
+    await wait_for_background_tasks()  # the poller sees "cancelled" and stops
+    final = (await client.get(f"/orders/{order['id']}")).json()
+    assert (final["status"], final["payment_status"]) == ("cancelled", "failed")
+    assert delivery._DELIVERIES.get(order["id"]) is None
+    lines = [json.loads(line) for line in open(os.environ["FOODDASH_LOG_FILE"])]
+    (call,) = [l for l in lines if l["message"].startswith("Ironclad POST /payments/requests/txn_pay1/cancel")
+               and l.get("request_id") == rid]
+    assert (call["endpoint"], call["status"]) == ("ironclad/payments/requests/{id}/cancel", "cancelled")
+
+
+async def test_cancel_after_the_user_paid_logs_a_refund(client, ironclad):
+    ironclad.cancel_conflict = True
+    order = await order_for(client)
+    await client.post(f"/orders/{order['id']}/pay")
+    r = await client.put(f"/orders/{order['id']}/cancel")
+    assert (r.json()["status"], r.json()["payment_status"]) == ("cancelled", "paid")
+    await settle(ironclad, "confirmed")
+    assert delivery._DELIVERIES.get(order["id"]) is None  # cancelled orders aren't delivered
+    lines = [json.loads(line) for line in open(os.environ["FOODDASH_LOG_FILE"])]
+    refund = [l for l in lines if l.get("error_type") == "PaidAfterCancel" and order["id"] in l["message"]]
+    assert refund and "refund needed" in refund[0]["message"]
+
+
+async def test_cancelling_an_unpaid_simulated_order_never_calls_ironclad(client, ironclad):
+    order = await order_for(client, user_id="user_7")
+    await client.put(f"/orders/{order['id']}/cancel")
+    assert ironclad.requests == []
+

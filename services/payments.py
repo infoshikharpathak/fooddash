@@ -103,7 +103,8 @@ async def _call(method: str, path: str, *, request_id: str, order_id: str, json:
 def _log(method, path, request_id, order_id, payment_request_id, status_code, started, *, status=None, error=None):
     message = f"Ironclad {method} {path} -> {status_code if status_code is not None else 'unreachable'}"
     extra = {
-        "request_id": request_id, "endpoint": "ironclad" + ("/payments/requests/{id}" if method == "GET" else path),
+        "request_id": request_id, "endpoint": "ironclad" + ("/payments/requests" if path == "/payments/requests"
+                                  else path.replace(payment_request_id or "", "{id}")),
         "duration_ms": int((time.perf_counter() - started) * 1000), "order_id": order_id,
         "payment_request_id": payment_request_id, "status": status, "error_type": error,
     }
@@ -124,6 +125,12 @@ async def request_payment(*, order_id: str, amount: float, payer: str, channel: 
 
 async def payment_status(payment_request_id: str, *, order_id: str, request_id: str) -> dict:
     return await _call("GET", f"/payments/requests/{payment_request_id}", request_id=request_id,
+                       order_id=order_id, payment_request_id=payment_request_id)
+
+
+async def cancel_payment(payment_request_id: str, *, order_id: str, request_id: str) -> dict:
+    """Withdraw a pending request (Ironclad: 409 PAYMENT_ALREADY_CONFIRMED if the user already paid)."""
+    return await _call("POST", f"/payments/requests/{payment_request_id}/cancel", request_id=request_id,
                        order_id=order_id, payment_request_id=payment_request_id)
 
 

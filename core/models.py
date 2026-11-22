@@ -35,7 +35,7 @@ class Restaurant(BaseModel):
 
 class OrderItem(BaseModel):
     menu_item_id: str
-    quantity: int = 1
+    quantity: int = Field(default=1, ge=1)
 
 
 class OrderStatus(str, Enum):
@@ -64,8 +64,6 @@ class PayRequest(BaseModel):
 
 class PayResponse(BaseModel):
     order_id: str
-    accepted: bool
-    """False when Ironclad refused the request (see error/message)."""
     payment_status: PaymentStatus
     payment_request_id: str | None = None
     amount: float
@@ -74,13 +72,12 @@ class PayResponse(BaseModel):
     """pending_otp | confirmed | cancelled | expired, as Ironclad reports it."""
     merchant_display_name: str | None = None
     expires_at: str | None = None
-    error: str | None = None
     message: str
 
 
 class OrderCreateRequest(BaseModel):
     restaurant_id: str
-    items: list[OrderItem]
+    items: list[OrderItem] = Field(min_length=1)
     user_id: str
 
 
