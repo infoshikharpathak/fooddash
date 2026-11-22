@@ -149,3 +149,14 @@ def test_withheld_response_in_the_turn_blocks_even_a_matching_address():
     t = turn("Change my address to 12 Oak St.", withheld)
     result = address_requested([], t, {"tool": "update_address", "params": {"address": "12 Oak St"}})
     assert not result and result.message == ADDRESS_MESSAGE
+
+
+async def test_cancel_names_a_uuid_order_that_isnt_this_one(service):
+    """Real order IDs are UUIDs: naming another one blocks the cancel even
+    with a single active order."""
+    client, llm, backend = service
+    backend.orders.append(order_json([{"menu_item_id": "item_1", "quantity": 1}], 12.5))
+    msg = "Cancel order 9b71b923-c25a-4742-b454-d768717e9098 please."
+    llm.plans[msg] = [{"tool": "cancel_order", "args": {"order_id": "ord-1"}}, {"text": "Hmm."}]
+    await chat(client, msg, "s-cancel-uuid")
+    assert puts(backend, "/cancel") == []

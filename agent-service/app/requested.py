@@ -32,7 +32,8 @@ _CONFIRM = re.compile(r"\b(?:yes|yeah|yep|sure|ok(?:ay)?|confirm(?:ed)?|go ahead
                       r"please do|that'?s right|sounds good|correct)\b", re.I)
 _CANCEL = re.compile(r"\bcancel(?:l?ed|l?ing)?\b", re.I)
 _DONT_CANCEL = re.compile(r"\b(?:don'?t|do not|never|not)\s+cancel\b", re.I)
-_ORDER_ID = re.compile(r"\bord[-_][\w-]+\b", re.I)
+# Order IDs as users might name them: the backend's UUIDs, or ord-style IDs.
+_ORDER_ID = re.compile(r"\b(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|ord[-_][\w-]+)\b", re.I)
 _WITHHELD = {"injection_detected_response", "schema_violation"}
 
 ADDRESS_MESSAGE = "Ask the user to confirm before changing the address."
