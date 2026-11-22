@@ -161,6 +161,16 @@ class StubBackend:
         if (method, path) == ("POST", "/orders/ord-1/payment/flag"):
             return httpx.Response(200, json={"order_id": "ord-1", "payment_request_id": "txn_pay1",
                                              "flagged_by_output_scan": True})
+        if (method, path) == ("PUT", "/users/user_1/address"):
+            body = json.loads(request.content)
+            return httpx.Response(200, json={**USER, "address": body["address"]})
+        if method == "PUT" and path.startswith("/orders/") and path.endswith("/cancel"):
+            oid = path.split("/")[2]
+            order = next((o for o in self.orders if o["id"] == oid), None)
+            if order is None:
+                return httpx.Response(404, json={"detail": "Order not found"})
+            order["status"] = "cancelled"
+            return httpx.Response(200, json=order)
         if (method, path) == ("GET", "/orders/ord-1"):
             return httpx.Response(200, json={**self.orders[-1], "status": "picked_up"})
         return httpx.Response(404, json={"detail": f"stub backend has no {method} {path}"})

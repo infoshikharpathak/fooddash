@@ -139,7 +139,10 @@ def build_platform(**platform_kwargs: Any) -> Platform:
     url, key = os.getenv("BASTION_URL"), os.getenv("BASTION_KEY")
     backend_url = os.getenv("FOODDASH_BASE_URL")
     holder: dict[str, Platform] = {}
-    platform_kwargs.setdefault("is_requested_action", requested.is_requested_action)
+    platform_kwargs.setdefault("is_requested_action", requested.make_is_requested_action(
+        lambda: holder["platform"].config.platform.apps[APP]["base_url"].rstrip("/"),
+        platform_kwargs.get("http_transport"),
+    ))
     platform_kwargs.setdefault("on_output_blocked", make_flagger(
         lambda: holder["platform"].config.platform.apps[APP]["base_url"].rstrip("/"),
         platform_kwargs.get("http_transport"),

@@ -225,6 +225,16 @@ checks every tool call against the policy in
   `app/requested.py` (no LLM) decides first: a `pay_for_order` for an order
   the user confirmed in this session ("yes", "I confirm", "go ahead"), with
   no withheld tool response in the session, isn't flagged.
+- **Rule: every tool that changes data needs the user's approval.** Either
+  an OTP in Ironclad (`pay_for_order`) or a deterministic check before the
+  call runs. `update_address` runs only if the new address appears in the
+  user's messages of this turn or the previous two (or the agent proposed it
+  and the user said yes); `cancel_order` only if the user asked to cancel in
+  that window and it's the order they meant (by ID, or their only active
+  order). Otherwise the call is blocked before it runs with
+  `unrequested_action` ("Ask the user to confirm before changing the address
+  / cancelling the order."), and it's in the trace. A turn with a withheld
+  tool response never passes. New write tools must add one of the two.
 - **Output check:** if the reply is blocked, or delivered but labeled
   `unrequested_action`, the service flags that turn's payment request
   through `POST /orders/{id}/payment/flag`, which forwards to Ironclad: it
