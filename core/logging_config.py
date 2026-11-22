@@ -9,7 +9,9 @@ from pathlib import Path
 
 LOG_FILE_PATH = Path(os.environ.get("FOODDASH_LOG_FILE", "/tmp/fooddash.log"))
 
-_EXTRA_FIELDS = ("request_id", "endpoint", "user_id", "duration_ms", "error_type")
+_EXTRA_FIELDS = ("request_id", "endpoint", "user_id", "duration_ms", "error_type",
+                 # Ironclad payment calls (services/payments.py); absent elsewhere.
+                 "order_id", "payment_request_id", "status")
 
 
 class JSONFormatter(logging.Formatter):

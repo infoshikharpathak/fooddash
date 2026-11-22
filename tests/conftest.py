@@ -27,9 +27,13 @@ def anyio_backend() -> str:
 
 async def wait_for_background_tasks(timeout: float = 5.0) -> None:
     """Await every in-flight background task (delivery lifecycles) to completion."""
-    pending = set(background._background_tasks)
-    if pending:
-        await asyncio.wait_for(asyncio.gather(*pending), timeout=timeout)
+    # Tasks can spawn tasks (a settled payment starts the delivery), so keep
+    # going until none are left.
+    async def drain():
+        while background._background_tasks:
+            await asyncio.gather(*set(background._background_tasks))
+
+    await asyncio.wait_for(drain(), timeout=timeout)
 
 
 @pytest.fixture(autouse=True)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class User(BaseModel):
@@ -53,6 +54,30 @@ class PaymentStatus(str, Enum):
     FAILED = "failed"
 
 
+class PayRequest(BaseModel):
+    """Body of POST /orders/{id}/pay. The amount is never taken from the
+    caller: it's the order's stored total."""
+
+    model_config = ConfigDict(extra="forbid")
+    channel: Literal["checkout", "agent"] = "checkout"
+
+
+class PayResponse(BaseModel):
+    order_id: str
+    accepted: bool
+    """False when Ironclad refused the request (see error/message)."""
+    payment_status: PaymentStatus
+    payment_request_id: str | None = None
+    amount: float
+    channel: str
+    ironclad_status: str | None = None
+    """pending_otp | confirmed | cancelled | expired, as Ironclad reports it."""
+    merchant_display_name: str | None = None
+    expires_at: str | None = None
+    error: str | None = None
+    message: str
+
+
 class OrderCreateRequest(BaseModel):
     restaurant_id: str
     items: list[OrderItem]
@@ -67,6 +92,8 @@ class Order(BaseModel):
     total: float
     status: OrderStatus = OrderStatus.CREATED
     payment_status: PaymentStatus = PaymentStatus.PENDING
+    # Ironclad payment request for this order (real payments only).
+    payment_request_id: str | None = None
     delivery_address: str
     created_at: str
     request_id: str | None = None
