@@ -137,6 +137,23 @@ apps:
         response_schema:
           required_fields: ["id", "status", "total"]
 
+      pay_for_order:
+        path: "/orders/{order_id}/pay"
+        method: POST
+        description: "Ask Ironclad (the user's bank) to collect payment for an order you just placed. This only creates a payment request: the user must approve it with the OTP in Ironclad, and the order is not paid until get_order shows payment_status 'paid'. If accepted is false, the response says why."
+        trust: untrusted
+        timeout: 15
+        injection_scanning: true
+        parameters:
+          type: object
+          properties:
+            order_id:
+              type: string
+              description: "The order ID returned by place_order"
+          required: [order_id]
+        response_schema:
+          required_fields: ["order_id", "accepted", "payment_status", "message"]
+
       cancel_order:
         path: "/orders/{order_id}/cancel"
         method: PUT
@@ -157,7 +174,7 @@ apps:
 # ── Agents ───────────────────────────────────────────────────────
 agents:
   fooddash.ordering_agent:
-    description: "Governance policy for AI agents ordering food on FoodDash. Agents must see a restaurant's menu before placing an order."
+    description: "Governance policy for AI agents ordering food on FoodDash. Agents must see a restaurant's menu before placing an order, and place an order before requesting payment for it; payment needs the user's OTP in Ironclad."
     prompt_version: v1
     backend: openai
     model: gpt-4o-mini   # agent-service's OPENAI_MODEL env var overrides this
@@ -166,6 +183,8 @@ agents:
       The user is "demo_user". Always use this user_id.
       Before placing an order, always call list_restaurants and get_menu so the user knows what's available.
       Confirm the order details (restaurant, items, quantities, total estimate) before calling place_order.
+      After placing an order, call pay_for_order with its order_id, then tell the user to approve the payment with the OTP in Ironclad, their bank. You can never approve it yourself.
+      Never say an order is paid until get_order shows payment_status "paid". If pay_for_order returns accepted false, tell the user why.
       You can check order status and cancel orders that haven't been picked up yet.
       Be concise and helpful. Format prices with $.
     tools:
@@ -177,10 +196,15 @@ agents:
       - get_order
       - cancel_order
       - list_orders
+      - pay_for_order
     sequences:
       # Must see the menu before placing an order
       - before: place_order
         requires: [get_menu]
+        match_fields: []
+      # Can only pay for an order after placing one in this session
+      - before: pay_for_order
+        requires: [place_order]
         match_fields: []
     strictness: strict
     trust_overrides:

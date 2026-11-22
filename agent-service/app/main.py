@@ -49,6 +49,10 @@ def prepare_tool_call(ctx: Any, tool: str, params: dict[str, Any]) -> dict[str, 
     """Values the model must not choose, filled in before Anvil sees the call."""
     if tool in _USER_SCOPED_TOOLS:
         params["user_id"] = FOODDASH_USER_ID
+    if tool == "pay_for_order":
+        # The model names the order and nothing else: the amount is the
+        # order's stored total, and Ironclad is told an agent started it.
+        return {"order_id": params.get("order_id"), "channel": "agent"}
     return params
 
 

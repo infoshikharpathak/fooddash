@@ -91,10 +91,23 @@ USER = {"id": "user_1", "name": "Alice Carter", "email": "alice@example.com",
         "address": "12 Elm Street, Springfield", "balance": 500.0}
 
 
-def order_json(items, total, status="confirmed"):
+PAY_MESSAGE = ("Payment of $25.00 requested. The user must approve it with the OTP in Ironclad; "
+               "the order is not paid until then.")
+
+
+def pay_json(order, *, accepted, message, payment_request_id=None, ironclad_status=None, error=None):
+    """Shape of the backend's PayResponse."""
+    return {"order_id": order["id"], "accepted": accepted, "payment_status": order["payment_status"],
+            "payment_request_id": payment_request_id, "amount": order["total"], "channel": "agent",
+            "ironclad_status": ironclad_status, "merchant_display_name": "FoodDash" if accepted else None,
+            "expires_at": None, "error": error, "message": message}
+
+
+def order_json(items, total, status="confirmed", payment_status="paid"):
     return {
         "id": "ord-1", "restaurant_id": "rest_1", "user_id": "user_1", "items": items, "total": total,
-        "status": status, "payment_status": "paid", "delivery_address": USER["address"],
+        "status": status, "payment_status": payment_status, "payment_request_id": None,
+        "delivery_address": USER["address"],
         "created_at": "2026-11-22T00:00:00+00:00", "request_id": None,
     }
 
@@ -105,6 +118,9 @@ class StubBackend:
     def __init__(self):
         self.requests: list[httpx.Request] = []
         self.orders: list[dict] = []
+        # What POST /orders/{id}/pay answers: accepted, or refused by Ironclad.
+        self.pay_refusal: tuple[str, str] | None = None
+        self.new_payment_status = "paid"  # "pending" when FoodDash takes real payments
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -119,11 +135,20 @@ class StubBackend:
             body = json.loads(request.content)
             items = [{"menu_item_id": i["menu_item_id"], "quantity": i.get("quantity", 1)} for i in body["items"]]
             prices = {i["id"]: i["price"] for i in MENU}
-            order = order_json(items, sum(prices[i["menu_item_id"]] * i["quantity"] for i in items))
+            order = order_json(items, sum(prices[i["menu_item_id"]] * i["quantity"] for i in items),
+                               payment_status=self.new_payment_status)
             self.orders.append(order)
             return httpx.Response(201, json=order)
         if (method, path) == ("GET", "/orders"):
             return httpx.Response(200, json=list(reversed(self.orders)))
+        if (method, path) == ("POST", "/orders/ord-1/pay"):
+            order = self.orders[-1]
+            if self.pay_refusal:
+                code, message = self.pay_refusal
+                return httpx.Response(200, json=pay_json(order, accepted=False, error=code, message=message))
+            order["payment_request_id"] = "txn_pay1"
+            return httpx.Response(200, json=pay_json(order, accepted=True, payment_request_id="txn_pay1",
+                                                     ironclad_status="pending_otp", message=PAY_MESSAGE))
         if (method, path) == ("GET", "/orders/ord-1"):
             return httpx.Response(200, json={**self.orders[-1], "status": "picked_up"})
         return httpx.Response(404, json={"detail": f"stub backend has no {method} {path}"})
