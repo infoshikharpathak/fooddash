@@ -154,6 +154,70 @@ cancellations) produce real business-rule errors, logscribe builds up a
 history of root-cause analyses, and the dashboard's metrics and charts update
 on their own.
 
+## Agent Service
+
+`agent-service/` is a chat-based ordering assistant: a separate FastAPI app
+on port 8100 that drives the backend above through governed tool calls. It
+runs on the [bastion](https://github.com/infoshikharpathak/bastion) SDK, the
+same way Ironclad's agent-service does: Agent Forge runs the agent, and Anvil
+checks every tool call against the policy in
+[`anvil-fooddash.yaml`](anvil-fooddash.yaml).
+
+- **Tools:** `list_restaurants`, `get_menu`, `get_user`, `get_order` and
+  `list_orders` are trusted reads; `update_address`, `place_order` and
+  `cancel_order` are untrusted writes (request and response are injection-scanned).
+- **Sequence rule:** `place_order` is blocked until the agent has called
+  `get_menu` in the same session. The model gets a correction telling it what
+  to call first, and the backend never sees the order.
+- **User:** the agent's instructions call the user `demo_user`; the service
+  pins `user_id` on `get_user`, `update_address` and `place_order` to
+  `FOODDASH_USER_ID` (default `user_1`), so the model can't act as anyone else.
+
+### Running both services
+
+```bash
+# terminal 1: the food backend on :8000
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --port 8000
+
+# terminal 2: the agent service on :8100
+cd agent-service
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+export OPENAI_API_KEY=sk-...
+uvicorn app.main:app --port 8100
+```
+
+Then:
+
+```bash
+curl -X POST http://localhost:8100/agent/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "What restaurants are available?"}'
+```
+
+The reply has `response`, `session_id` and `trace_id`. Send the `session_id`
+back with the next message to keep the conversation (and the sequence state)
+going. `GET /agent/traces/{session_id}` lists every tool call in the session
+with Anvil's decision on it.
+
+| Var | Default | Meaning |
+|---|---|---|
+| `OPENAI_API_KEY` | — (required) | The agent's model and Anvil's injection classifier |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Overrides the model in `anvil-fooddash.yaml` (library mode only) |
+| `FOODDASH_BASE_URL` | `http://localhost:8000` | Where the tools reach the backend (library mode only) |
+| `FOODDASH_USER_ID` | `user_1` | The backend user every user-scoped call acts as |
+| `BASTION_URL` + `BASTION_KEY` | unset | Remote mode: load the bundle from the bastion control plane instead of the YAML |
+| `ANVIL_CONFIG_PATH` | `../anvil-fooddash.yaml` | Config path (for containers, where the yaml is mounted) |
+
+Agent-service tests stub the model and the backend (Anvil, Agent Forge and
+bastion run for real), so they need no API key:
+
+```bash
+cd agent-service && pip install -r requirements-dev.txt && pytest
+```
+
 ## Out of scope
 
 No real database (in-memory state only), no auth, no real payment
