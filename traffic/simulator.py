@@ -8,11 +8,15 @@ import uuid
 import httpx
 
 from core.logging_config import get_logger
+from services.payments import USER_MAP
 
 logger = get_logger("traffic_simulator")
 
 BASE_URL = os.environ.get("INTERNAL_BASE_URL", "http://localhost:8000")
-_USER_IDS = [f"user_{i}" for i in range(1, 21)]
+# Users with a real Ironclad account (services.payments.USER_MAP) are left
+# out: their orders wait for an OTP payment, which simulated journeys never
+# make, so they'd sit unpaid forever.
+_USER_IDS = [f"user_{i}" for i in range(1, 21) if f"user_{i}" not in USER_MAP]
 
 
 async def _step_delay() -> None:
