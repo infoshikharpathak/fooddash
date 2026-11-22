@@ -21,3 +21,28 @@ jobs:
 
       - name: Run tests
         run: pytest tests/
+
+  # Every model call and backend endpoint is stubbed, so no secrets are needed.
+  agent-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # matches agent-service's Docker image
+          # The bastion pin (a full commit SHA) only changes when
+          # requirements.txt does, so its git build is cached with it.
+          cache: pip
+          cache-dependency-path: agent-service/requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          OPENAI_API_KEY: dummy-key-for-ci
+        run: pytest -q
