@@ -267,3 +267,30 @@ async def test_flag_without_a_payment_request_is_409(client, ironclad):
     r = await client.post(f"/orders/{order['id']}/payment/flag", json={"reason": "x"})
     assert r.status_code == 409
     assert (await client.post("/orders/nope/payment/flag", json={"reason": "x"})).status_code == 404
+
+
+async def test_unpaid_order_without_a_request_is_cancelled_after_the_timeout(client, ironclad, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from services import order as order_service
+
+    monkeypatch.setenv("UNPAID_ORDER_TIMEOUT_SECONDS", "900")
+    fresh = await order_for(client)
+    stale = await order_for(client, items=[{"menu_item_id": "item_2", "quantity": 1}])
+    order_service._ORDERS[stale["id"]].created_at = (datetime.now(timezone.utc) - timedelta(minutes=16)).isoformat()
+    assert order_service.cancel_unpaid_orders() == [stale["id"]]
+    got = (await client.get(f"/orders/{stale['id']}")).json()
+    assert (got["status"], got["payment_status"]) == ("cancelled", "failed")
+    assert (await client.get(f"/orders/{fresh['id']}")).json()["status"] != "cancelled"
+
+
+async def test_order_with_a_payment_request_is_left_to_the_ironclad_settler(client, ironclad):
+    from datetime import datetime, timedelta, timezone
+
+    from services import order as order_service
+
+    o = await order_for(client)
+    await client.post(f"/orders/{o['id']}/pay", json={"channel": "agent"})
+    order_service._ORDERS[o["id"]].created_at = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    assert order_service.cancel_unpaid_orders() == []
+    await settle(ironclad, "cancelled")

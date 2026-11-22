@@ -106,3 +106,4 @@ async def stats() -> dict:
 async def on_startup() -> None:
     logger.info("FoodDash starting up", extra={"endpoint": "startup"})
     spawn_background(run_traffic_simulator())
+    spawn_background(order.run_unpaid_order_sweeper())

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -265,6 +266,45 @@ async def _settle_payment(order_id: str, payment_request_id: str, request_id: st
         order.status = OrderStatus.CANCELLED
     logger.warning(f"Payment {outcome} for order {order_id}; order cancelled",
                    extra={**extra, "error_type": f"Payment{outcome.capitalize()}"})
+
+
+def unpaid_timeout_seconds() -> float:
+    return float(os.getenv("UNPAID_ORDER_TIMEOUT_SECONDS", "900"))
+
+
+def cancel_unpaid_orders(now: datetime | None = None) -> list[str]:
+    """Cancel orders still waiting for payment with no payment request after
+    UNPAID_ORDER_TIMEOUT_SECONDS (default 15 minutes), e.g. ones another
+    app's agent placed and the user never paid in FoodDash. Orders with a
+    payment request are settled by _settle_payment instead (Ironclad expires
+    unapproved requests)."""
+    now = now or datetime.now(timezone.utc)
+    limit = unpaid_timeout_seconds()
+    cancelled = []
+    for order in list(_ORDERS.values()):
+        if (order.payment_status != PaymentStatus.PENDING or order.payment_request_id is not None
+                or order.status in (OrderStatus.CANCELLED, OrderStatus.PICKED_UP, OrderStatus.DELIVERED)):
+            continue
+        if (now - datetime.fromisoformat(order.created_at)).total_seconds() < limit:
+            continue
+        order.status = OrderStatus.CANCELLED
+        order.payment_status = PaymentStatus.FAILED
+        cancelled.append(order.id)
+        logger.warning(f"Order {order.id} cancelled: unpaid after {limit:.0f}s",
+                       extra={"endpoint": "unpaid-sweeper", "user_id": order.user_id, "error_type": "UnpaidTimeout"})
+    return cancelled
+
+
+async def run_unpaid_order_sweeper(interval: float | None = None) -> None:
+    """Background: cancel unpaid orders every *interval* seconds (default 60)."""
+    import asyncio
+
+    while True:
+        await asyncio.sleep(interval or float(os.getenv("UNPAID_ORDER_SWEEP_SECONDS", "60")))
+        try:
+            cancel_unpaid_orders()
+        except Exception:  # noqa: BLE001  never let the sweeper die
+            logger.exception("Unpaid-order sweep failed", extra={"endpoint": "unpaid-sweeper"})
 
 
 @router.get("")
