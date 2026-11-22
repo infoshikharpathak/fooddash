@@ -13,6 +13,17 @@ from bastion.classifier import is_classifier_request
 from openai.types.chat import ChatCompletion
 
 os.environ.setdefault("OPENAI_API_KEY", "dummy-key-for-tests")
+
+# Every caller needs an ak_ key: FoodDash's own (first party) and the chat hub's.
+from bastion.a2a import hash_key  # noqa: E402
+
+FIRST_PARTY_KEY = "ak_test_fooddash_first_party"
+HUB_KEY = "ak_test_chathub"
+os.environ["FOODDASH_A2A_KEYS"] = json.dumps({
+    hash_key(FIRST_PARTY_KEY): {"app": "fooddash", "user_id": "user_1"},
+    hash_key(HUB_KEY): {"app": "chathub", "user_id": "user_1"},
+})
+FIRST_PARTY = {"Authorization": f"Bearer {FIRST_PARTY_KEY}"}
 for var in ("OPENAI_MODEL", "FOODDASH_BASE_URL", "BASTION_URL", "BASTION_KEY"):
     os.environ.pop(var, None)
 
@@ -206,6 +217,6 @@ async def service():
     await platform.start()
     main.app.state.platform = platform
     transport = httpx.ASGITransport(app=main.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://agent") as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://agent", headers=FIRST_PARTY) as client:
         yield client, llm, backend
     await platform.close()

@@ -1,6 +1,7 @@
 """Keys FoodDash issues to other apps for agent-to-agent (A2A) calls.
 
-A caller sends 'Authorization: Bearer ak_...'. The key maps to the calling
+Every caller sends 'Authorization: Bearer ak_...' (no key: 401), FoodDash's
+own UI included, with the first-party key issued to "fooddash". The key maps to the calling
 app and, for this demo, a fixed FoodDash user (user_1). Only SHA-256 hashes
 are stored, in the JSON file (or JSON text) FOODDASH_A2A_KEYS points to:
 {"<sha256>": {"app": "chathub", "user_id": "user_1", "name": "chathub"}}.
@@ -8,6 +9,7 @@ are stored, in the JSON file (or JSON text) FOODDASH_A2A_KEYS points to:
 Production would use delegated user consent (OAuth-style: the user grants
 the calling app access to their own FoodDash account), not a fixed mapping.
 
+    python -m app.a2a issue fooddash --user user_1 --file a2a_keys.json   # first party: FoodDash's own UI
     python -m app.a2a issue chathub --user user_1 --file a2a_keys.json
     python -m app.a2a list --file a2a_keys.json
     python -m app.a2a revoke chathub --file a2a_keys.json
@@ -23,6 +25,10 @@ from pathlib import Path
 from bastion.a2a import CallerKeys, hash_key, new_key
 
 ENV = "FOODDASH_A2A_KEYS"
+
+# FoodDash's own UI and tools use a key issued to this app: full tool set,
+# its own sessions. Every other app gets the restricted set below.
+FIRST_PARTY_APP = "fooddash"
 
 # What a session another app started may do. Enforced in code from the
 # authenticated caller (app/requested.py), never by the prompt.

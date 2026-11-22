@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 from bastion import NOT_AN_ACTION, NotRequested
 
-from .a2a import EXTERNAL_PAYMENT_MESSAGE, EXTERNAL_TOOLS
+from .a2a import EXTERNAL_PAYMENT_MESSAGE, EXTERNAL_TOOLS, FIRST_PARTY_APP
 
 LOOKBACK = 2
 ACTIVE = {"created", "confirmed", "preparing", "ready"}  # cancellable: not picked up yet
@@ -134,7 +134,7 @@ def make_is_requested_action(backend_url, transport: Any = None):
 
     async def is_requested_action(history: list[dict[str, Any]], turn: dict[str, Any], action: dict[str, Any]):
         tool, before = action.get("tool"), action.get("phase") == "before"
-        if before and turn.get("caller_app"):
+        if before and turn.get("caller_app") not in (None, FIRST_PARTY_APP):
             return await external(history, turn, action)
         if tool == "update_address":
             return address_requested(history, turn, action) if before else NOT_AN_ACTION

@@ -223,22 +223,22 @@ def health():
 
 @app.post("/agent/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request) -> ChatResponse:
-    """FoodDash's own UI calls this without a key and gets the full tool set.
-    Another app calls it with the ak_ key FoodDash issued to it: identity
-    comes from that key only (headers are informational), its sessions are
-    kept apart from FoodDash's own, and they get the restricted tool set."""
-    caller = None
-    if request.headers.get("authorization"):
-        caller = a2a.load().authenticate(request.headers)
-        if caller is None:
-            raise HTTPException(status_code=401, detail="Unknown or revoked A2A key.")
+    """Every caller needs an ak_ key FoodDash issued (no key or an unknown
+    one: 401); identity comes from that key only (headers are informational).
+    FoodDash's own UI uses the first-party key ("fooddash"): full tool set,
+    its own sessions. Another app's sessions are kept apart and get the
+    restricted tool set."""
+    caller = a2a.load().authenticate(request.headers)
+    if caller is None:
+        raise HTTPException(status_code=401, detail="An ak_ key issued by FoodDash is required.",
+                            headers={"WWW-Authenticate": "Bearer"})
     session_id = req.session_id or f"sess_{uuid.uuid4().hex[:12]}"
+    first_party = caller.app == a2a.FIRST_PARTY_APP
     # Another app's sessions live in their own namespace: it can't reach (or
     # spoof) one of FoodDash's own sessions by choosing its ID.
-    run_session = f"ext-{caller.app}-{session_id}" if caller else session_id
-    origin = ({"caller_app": caller.app, "parent_trace_id": caller.parent_trace_id, "chain": caller.chain}
-              if caller else {})
-    token = _request_user.set(caller.user_id if caller else None)
+    run_session = session_id if first_party else f"ext-{caller.app}-{session_id}"
+    origin = {"caller_app": caller.app, "parent_trace_id": caller.parent_trace_id, "chain": caller.chain}
+    token = _request_user.set(caller.user_id)
     try:
         reply = await _platform().run_agent(AGENT, req.message, session_id=run_session, **origin)
     except Exception as exc:

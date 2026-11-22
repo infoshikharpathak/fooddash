@@ -4,19 +4,12 @@ a restricted tool set enforced in code, and no payments."""
 import json
 
 import pytest
-from bastion.a2a import CALL_CHAIN_HEADER, TRACE_ID_HEADER, hash_key, new_key
+from bastion.a2a import CALL_CHAIN_HEADER, TRACE_ID_HEADER, new_key
 
 from app.a2a import EXTERNAL_PAYMENT_MESSAGE
 
-from .conftest import order_json
+from .conftest import HUB_KEY, order_json
 from .test_payments import ORDER_AND_PAY, PLAN
-
-HUB_KEY = new_key()
-
-
-@pytest.fixture(autouse=True)
-def _keys(monkeypatch):
-    monkeypatch.setenv("FOODDASH_A2A_KEYS", json.dumps({hash_key(HUB_KEY): {"app": "chathub", "user_id": "user_1"}}))
 
 
 def hub(extra=None):
@@ -24,13 +17,23 @@ def hub(extra=None):
 
 
 async def chat(client, message, session_id, headers=None, status=200):
-    r = await client.post("/agent/chat", json={"message": message, "session_id": session_id}, headers=headers or {})
+    r = await client.post("/agent/chat", json={"message": message, "session_id": session_id}, headers=headers)
     assert r.status_code == status, r.text
     return r.json()
 
 
 def corrections(llm, msg):
     return [r["correction"] for r in llm.tool_results_seen(msg) if r.get("correction")]
+
+
+async def test_no_key_is_401(service):
+    import httpx
+
+    import app.main as main
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://agent") as bare:
+        r = await bare.post("/agent/chat", json={"message": "hi", "session_id": "x"})
+    assert r.status_code == 401 and r.headers["www-authenticate"] == "Bearer"
 
 
 async def test_unknown_key_is_401(service):
@@ -93,12 +96,17 @@ async def test_get_order_and_cancel_only_for_this_sessions_orders(service):
     assert ("PUT", "/orders/ord-1/cancel") in backend.calls()
 
 
-async def test_foodDash_own_callers_keep_the_full_tool_set(service):
-    client, llm, backend = service
+async def test_first_party_key_gets_the_full_tool_set(service):
+    client, llm, backend = service  # the client sends FoodDash's own first-party key
     backend.new_payment_status = "pending"
     llm.plans[ORDER_AND_PAY] = PLAN
     await chat(client, ORDER_AND_PAY, "own-1")
     assert ("POST", "/orders/ord-1/pay") in backend.calls()
+    msg = "Change my address to 12 Oak St and list my orders."
+    llm.plans[msg] = [{"tool": "update_address", "args": {"address": "12 Oak St"}},
+                      {"tool": "list_orders", "args": {}}, {"text": "Done."}]
+    await chat(client, msg, "own-1")
+    assert corrections(llm, msg) == []
 
 
 async def test_external_sessions_are_namespaced_apart_from_foodDash_sessions(service):

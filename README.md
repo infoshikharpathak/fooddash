@@ -225,13 +225,17 @@ checks every tool call against the policy in
   `app/requested.py` (no LLM) decides first: a `pay_for_order` for an order
   the user confirmed in this session ("yes", "I confirm", "go ahead"), with
   no withheld tool response in the session, isn't flagged.
+- **Every caller needs a key.** `POST /agent/chat` without an `ak_` key
+  FoodDash issued, or with an unknown one, is 401. FoodDash's own UI and
+  tools use the first-party key (`python -m app.a2a issue fooddash`):
+  full tool set, FoodDash's own sessions.
 - **Calls from other apps (A2A).** `POST /agent/chat` with
   `Authorization: Bearer ak_...`, a key FoodDash issued to that app
   (`python -m app.a2a issue chathub --user user_1`; only SHA-256 hashes are
   kept, in the file `FOODDASH_A2A_KEYS` points to). Identity comes from the
   key only: the `X-Bastion-Call-Chain` and `X-Bastion-Trace-Id` headers are
   recorded (the trace links to the caller's) but never trusted. An unknown
-  key is 401; no key at all is FoodDash's own UI and agent, as before. Each
+  key (or none) is 401. Each
   key maps to a calling app and, for this demo, a fixed FoodDash user
   (`user_1`); production would use delegated user consent (OAuth-style), not
   a fixed mapping. Sessions another app starts are kept apart
@@ -285,14 +289,17 @@ cd agent-service
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export OPENAI_API_KEY=sk-...
+# every caller needs a key FoodDash issued; this is FoodDash's own (first party)
+python -m app.a2a issue fooddash --user user_1 --file a2a_keys.json
+export FOODDASH_A2A_KEYS=$PWD/a2a_keys.json
 uvicorn app.main:app --port 8100
 ```
 
-Then:
+Then, with the `ak_` key it printed:
 
 ```bash
 curl -X POST http://localhost:8100/agent/chat \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H 'Authorization: Bearer ak_...' \
   -d '{"message": "What restaurants are available?"}'
 ```
 

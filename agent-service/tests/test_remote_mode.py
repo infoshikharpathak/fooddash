@@ -55,7 +55,10 @@ async def remote(monkeypatch, tmp_path):
                                    dashboard=False)  # FakeBastion has no /v1/traces
     await platform.start()
     main.app.state.platform = platform
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://agent") as client:
+    from .conftest import FIRST_PARTY
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://agent",
+                                 headers=FIRST_PARTY) as client:
         yield client, platform, service, llm, backend
     await platform.close()
 
