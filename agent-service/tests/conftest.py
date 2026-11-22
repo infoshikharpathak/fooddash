@@ -36,12 +36,16 @@ class StubLLM:
         self.plans = plans
         self.requests: list[list] = []
         self.models: list[str] = []
+        self.flag_words: list[str] = []  # the classifier flags text containing any of these
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     async def _create(self, **kwargs):
         msgs = kwargs["messages"]
         if is_classifier_request(msgs):  # Anvil's injection scan, via the SDK
-            return _completion({"role": "assistant", "content": '{"injection": false}'}, "stop")
+            text = _content(msgs[-1]) or ""
+            hit = next((w for w in self.flag_words if w in text), None)
+            verdict = {"injection": True, "pattern": f"stub flag: {hit}"} if hit else {"injection": False}
+            return _completion({"role": "assistant", "content": json.dumps(verdict)}, "stop")
         self.requests.append(msgs)
         self.models.append(kwargs.get("model"))
         last_user = max(i for i, m in enumerate(msgs) if _role(m) == "user")
