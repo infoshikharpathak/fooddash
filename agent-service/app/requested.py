@@ -26,6 +26,8 @@ from typing import Any
 import httpx
 from bastion import NOT_AN_ACTION, NotRequested
 
+from .a2a import EXTERNAL_PAYMENT_MESSAGE, EXTERNAL_TOOLS
+
 LOOKBACK = 2
 ACTIVE = {"created", "confirmed", "preparing", "ready"}  # cancellable: not picked up yet
 _CONFIRM = re.compile(r"\b(?:yes|yeah|yep|sure|ok(?:ay)?|confirm(?:ed)?|go ahead|do it|place (?:it|the order)|"
@@ -50,6 +52,12 @@ def _withheld(turns: list[dict]) -> bool:
 
 def _user_texts(history: list[dict], turn: dict) -> list[str]:
     return [t.get("user") or "" for t in history[-LOOKBACK:]] + [turn.get("user") or ""]
+
+
+def _session_orders(turns: list[dict]) -> set[str]:
+    """IDs of orders place_order created in these turns."""
+    return {(c.get("response") or {}).get("id") for t in turns for c in t.get("tool_calls") or []
+            if c.get("tool") == "place_order" and c.get("success") and isinstance(c.get("response"), dict)}
 
 
 def payment_requested(history: list[dict[str, Any]], turn: dict[str, Any], action: dict[str, Any]):
@@ -105,8 +113,29 @@ def make_is_requested_action(backend_url, transport: Any = None):
             return NotRequested(CANCEL_MESSAGE)
         return True if active == [order_id] else NotRequested(CANCEL_MESSAGE)
 
+    async def external(history: list[dict], turn: dict, action: dict):
+        """A session another app started: only EXTERNAL_TOOLS, payments never,
+        and orders only from this session. Enforced from the authenticated
+        caller (turn["caller_app"]), whatever the model or the prompt says."""
+        tool = action.get("tool")
+        if tool == "pay_for_order":
+            return NotRequested(EXTERNAL_PAYMENT_MESSAGE, violation="external_caller_payment")
+        if tool not in EXTERNAL_TOOLS:
+            return NotRequested(f"{tool} isn't available in conversations started by another app.",
+                                violation="external_caller_tool")
+        if tool in ("get_order", "cancel_order"):
+            order_id = (action.get("params") or {}).get("order_id")
+            if order_id not in _session_orders([*history, turn]):
+                return NotRequested("Only orders placed in this conversation can be checked or cancelled here.",
+                                    violation="external_caller_order")
+            if tool == "cancel_order":
+                return await cancel_requested(history, turn, action)
+        return NOT_AN_ACTION
+
     async def is_requested_action(history: list[dict[str, Any]], turn: dict[str, Any], action: dict[str, Any]):
         tool, before = action.get("tool"), action.get("phase") == "before"
+        if before and turn.get("caller_app"):
+            return await external(history, turn, action)
         if tool == "update_address":
             return address_requested(history, turn, action) if before else NOT_AN_ACTION
         if tool == "cancel_order":

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import contextvars
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any
@@ -17,7 +18,7 @@ from typing import Any
 import httpx
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -28,7 +29,7 @@ if os.path.exists(_forge_env):
 
 from bastion import Platform  # noqa: E402
 
-from . import requested  # noqa: E402
+from . import a2a, requested  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logger = logging.getLogger("fooddash-agent")
@@ -48,10 +49,15 @@ FOODDASH_USER_ID = os.environ.get("FOODDASH_USER_ID", "user_1")
 _USER_SCOPED_TOOLS = ("get_user", "update_address", "place_order")
 
 
+# The FoodDash user this request acts for: FOODDASH_USER_ID for FoodDash's
+# own callers, or the user an A2A caller's key maps to (app/a2a.py).
+_request_user: contextvars.ContextVar[str | None] = contextvars.ContextVar("fooddash_request_user", default=None)
+
+
 def prepare_tool_call(ctx: Any, tool: str, params: dict[str, Any]) -> dict[str, Any]:
     """Values the model must not choose, filled in before Anvil sees the call."""
     if tool in _USER_SCOPED_TOOLS:
-        params["user_id"] = FOODDASH_USER_ID
+        params["user_id"] = _request_user.get() or FOODDASH_USER_ID
     if tool == "pay_for_order":
         # Ironclad is told an agent started this payment. The tool's schema
         # declares only order_id, so Anvil blocks a model that tries to send
@@ -212,13 +218,30 @@ def health():
 
 
 @app.post("/agent/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest, request: Request) -> ChatResponse:
+    """FoodDash's own UI calls this without a key and gets the full tool set.
+    Another app calls it with the ak_ key FoodDash issued to it: identity
+    comes from that key only (headers are informational), its sessions are
+    kept apart from FoodDash's own, and they get the restricted tool set."""
+    caller = None
+    if request.headers.get("authorization"):
+        caller = a2a.load().authenticate(request.headers)
+        if caller is None:
+            raise HTTPException(status_code=401, detail="Unknown or revoked A2A key.")
     session_id = req.session_id or f"sess_{uuid.uuid4().hex[:12]}"
+    # Another app's sessions live in their own namespace: it can't reach (or
+    # spoof) one of FoodDash's own sessions by choosing its ID.
+    run_session = f"ext-{caller.app}-{session_id}" if caller else session_id
+    origin = ({"caller_app": caller.app, "parent_trace_id": caller.parent_trace_id, "chain": caller.chain}
+              if caller else {})
+    token = _request_user.set(caller.user_id if caller else None)
     try:
-        reply = await _platform().run_agent(AGENT, req.message, session_id=session_id)
+        reply = await _platform().run_agent(AGENT, req.message, session_id=run_session, **origin)
     except Exception as exc:
         logger.exception("Agent error")
         raise HTTPException(status_code=502, detail=f"Agent error: {exc}") from exc
+    finally:
+        _request_user.reset(token)
     # The approval line is the system's: added after the output scan and any
     # fallback reply, built from pay_for_order's structured result.
     lines = approval_lines(reply.trace.get("tool_calls", []))

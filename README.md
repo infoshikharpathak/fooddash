@@ -225,6 +225,26 @@ checks every tool call against the policy in
   `app/requested.py` (no LLM) decides first: a `pay_for_order` for an order
   the user confirmed in this session ("yes", "I confirm", "go ahead"), with
   no withheld tool response in the session, isn't flagged.
+- **Calls from other apps (A2A).** `POST /agent/chat` with
+  `Authorization: Bearer ak_...`, a key FoodDash issued to that app
+  (`python -m app.a2a issue chathub --user user_1`; only SHA-256 hashes are
+  kept, in the file `FOODDASH_A2A_KEYS` points to). Identity comes from the
+  key only: the `X-Bastion-Call-Chain` and `X-Bastion-Trace-Id` headers are
+  recorded (the trace links to the caller's) but never trusted. An unknown
+  key is 401; no key at all is FoodDash's own UI and agent, as before. Each
+  key maps to a calling app and, for this demo, a fixed FoodDash user
+  (`user_1`); production would use delegated user consent (OAuth-style), not
+  a fixed mapping. Sessions another app starts are kept apart
+  (`ext-<app>-<id>`) and get a restricted tool set, enforced in code from
+  the authenticated caller, not the prompt: `list_restaurants`, `get_menu`,
+  `place_order`, `get_order` and `cancel_order` (the last two only for orders
+  placed in that session). `pay_for_order` is blocked with
+  `external_caller_payment` ("Payments for orders started outside FoodDash
+  must be completed in FoodDash."), so the order stays `pending`; anything
+  else is `external_caller_tool`.
+- **Unpaid orders time out.** An order still waiting for payment with no
+  Ironclad payment request is cancelled after `UNPAID_ORDER_TIMEOUT_SECONDS`
+  (900).
 - **Rule: every tool that changes data needs the user's approval.** Either
   an OTP in Ironclad (`pay_for_order`) or a deterministic check before the
   call runs. `update_address` runs only if the new address appears in the
