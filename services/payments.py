@@ -134,6 +134,14 @@ async def cancel_payment(payment_request_id: str, *, order_id: str, request_id: 
                        order_id=order_id, payment_request_id=payment_request_id)
 
 
+async def flag_payment(payment_request_id: str, *, reason: str, order_id: str, request_id: str) -> dict:
+    """Tell Ironclad our assistant's reply about this request was blocked or
+    pushed an action the user didn't ask for: it stays pending, and the
+    user's OTP modal warns them before they approve."""
+    return await _call("POST", f"/payments/requests/{payment_request_id}/flag", request_id=request_id,
+                       order_id=order_id, payment_request_id=payment_request_id, json={"reason": reason[:500]})
+
+
 async def wait_until_final(payment_request_id: str, *, order_id: str, request_id: str) -> str:
     """Poll until the request is confirmed, cancelled or expired. Ironclad
     expires an unconfirmed request after its OTP TTL, so this ends."""

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from core.exceptions import (
     DuplicateOrderError,
@@ -211,6 +212,31 @@ async def pay_for_order(order_id: str, request: Request, body: PayRequest | None
     return _pay_response(order, channel, ironclad=result, message=(
         f"Payment of ${order.total:.2f} requested. The user must approve it with the OTP in Ironclad; "
         "the order is not paid until then."))
+
+
+class FlagPaymentRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/{order_id}/payment/flag")
+async def flag_order_payment(order_id: str, body: FlagPaymentRequest, request: Request) -> dict:
+    """Flag this order's pending Ironclad payment request: the ordering
+    assistant's reply about it was blocked, or pushed an action the user
+    didn't ask for. It stays pending; the user's OTP modal shows a warning."""
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    order = _ORDERS.get(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.payment_request_id is None:
+        raise HTTPException(status_code=409, detail="This order has no Ironclad payment request to flag.")
+    try:
+        result = await payments.flag_payment(order.payment_request_id, reason=body.reason, order_id=order.id,
+                                             request_id=request_id)
+    except payments.IroncladError as exc:
+        status = 502 if exc.status_code is None or exc.status_code >= 500 or exc.status_code == 401 else exc.status_code
+        raise HTTPException(status_code=status, detail={"error": exc.code, "message": exc.message}) from exc
+    return {"order_id": order.id, "payment_request_id": order.payment_request_id,
+            "flagged_by_output_scan": bool(result.get("flagged_by_output_scan"))}
 
 
 async def _settle_payment(order_id: str, payment_request_id: str, request_id: str) -> None:

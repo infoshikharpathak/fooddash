@@ -44,6 +44,9 @@ class FakeIronclad:
                                                  "message": "already confirmed", "details": {}})
             self.status = "cancelled"
             return httpx.Response(200, json={"payment_request_id": "txn_pay1", "status": "cancelled"})
+        if request.method == "POST" and request.url.path == "/payments/requests/txn_pay1/flag":
+            return httpx.Response(200, json={"payment_request_id": "txn_pay1", "status": "pending_otp",
+                                             "flagged_by_output_scan": True})
         if request.method == "GET" and request.url.path == "/payments/requests/txn_pay1":
             return httpx.Response(200, json={"payment_request_id": "txn_pay1", "status": self.status})
         return httpx.Response(404, json={"error": "NOT_FOUND", "message": request.url.path})
@@ -246,3 +249,21 @@ async def test_cancelling_an_unpaid_simulated_order_never_calls_ironclad(client,
     await client.put(f"/orders/{order['id']}/cancel")
     assert ironclad.requests == []
 
+
+
+async def test_flag_order_payment_forwards_to_ironclad(client, ironclad):
+    order = await order_for(client)
+    await client.post(f"/orders/{order['id']}/pay", json={"channel": "agent"})
+    r = await client.post(f"/orders/{order['id']}/payment/flag", json={"reason": "unrequested_action: tip"})
+    await settle(ironclad, "cancelled")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"order_id": order["id"], "payment_request_id": "txn_pay1", "flagged_by_output_scan": True}
+    (flag,) = [q for q in ironclad.requests if q.url.path.endswith("/flag")]
+    assert json.loads(flag.content) == {"reason": "unrequested_action: tip"}
+
+
+async def test_flag_without_a_payment_request_is_409(client, ironclad):
+    order = await order_for(client)
+    r = await client.post(f"/orders/{order['id']}/payment/flag", json={"reason": "x"})
+    assert r.status_code == 409
+    assert (await client.post("/orders/nope/payment/flag", json={"reason": "x"})).status_code == 404
