@@ -217,6 +217,14 @@ checks every tool call against the policy in
   order, and the service adds `channel: agent`. The user still has to
   approve it with the OTP in Ironclad. The agent never gets a tool for
   Ironclad itself.
+- **Approval line:** after `pay_for_order` creates a pending request, the
+  service (not the model) adds "Payment of $25.00 to FoodDash is waiting for
+  your approval in your Ironclad app." after the reply, from the structured
+  tool result, once. The model only confirms in its own words, without codes.
+- **Output check:** if the reply is blocked, or delivered but labeled
+  `unrequested_action`, the service flags that turn's payment request
+  through `POST /orders/{id}/payment/flag`, which forwards to Ironclad: it
+  stays pending, and the OTP modal shows a warning.
 - **Parameter checks:** Anvil checks every call against the tool's declared
   `parameters` in `anvil-fooddash.yaml`. A missing or mistyped field, or one
   the schema doesn't declare (an `amount` or `channel` on `pay_for_order`), is

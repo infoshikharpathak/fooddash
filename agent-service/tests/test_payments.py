@@ -112,5 +112,6 @@ async def test_instructions_tell_the_agent_to_pay_and_never_claim_paid(service):
     llm.plans["hi"] = [{"text": "Hi!"}]
     await chat(client, "hi", "s-prompt")
     prompt = llm.requests[-1][0]["content"]
-    assert "call pay_for_order" in prompt and "OTP in Ironclad" in prompt
+    assert "call pay_for_order" in prompt and "the system adds the approval line" in prompt
+    assert "never ask the user for a code" in prompt
     assert 'Never say an order is paid until get_order shows payment_status "paid"' in prompt

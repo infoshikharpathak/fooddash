@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -57,6 +58,69 @@ def prepare_tool_call(ctx: Any, tool: str, params: dict[str, Any]) -> dict[str, 
     return params
 
 
+def _payment_started(call: dict[str, Any]) -> dict[str, Any] | None:
+    """pay_for_order's result if this call created a pending Ironclad request."""
+    data = call.get("response") if isinstance(call.get("response"), dict) else {}
+    if call.get("tool") == "pay_for_order" and call.get("success") and data.get("payment_request_id") \
+            and data.get("ironclad_status") == "pending_otp":
+        return data
+    return None
+
+
+def approval_lines(tool_calls: list[dict[str, Any]]) -> list[str]:
+    """The system's approval line for each payment request this turn created,
+    from the structured tool result (never the model's words), once each."""
+    lines, seen = [], set()
+    for call in tool_calls:
+        data = _payment_started(call)
+        if data is None or data["payment_request_id"] in seen:
+            continue
+        try:
+            amount = f"${float(data['amount']):,.2f}"
+        except (KeyError, TypeError, ValueError):
+            continue
+        seen.add(data["payment_request_id"])
+        lines.append(f"Payment of {amount} to FoodDash is waiting for your approval in your Ironclad app.")
+    return lines
+
+
+def add_lines(reply: str, lines: list[str]) -> str:
+    out = reply.rstrip()
+    for line in lines:
+        if line not in out:
+            out = f"{out}\n\n{line}" if out else line
+    return out
+
+
+def make_flagger(backend_url, transport: Any = None):
+    """on_output_blocked hook: the reply was blocked, or delivered but labeled
+    unrequested_action. Flag each payment request this turn created, through
+    the backend (it holds FoodDash's Ironclad merchant key). The request
+    stays pending; Ironclad's OTP modal warns the user."""
+
+    async def flag(agent_id: str, tool_calls: list[dict[str, Any]], reason: str) -> list[dict[str, Any]]:
+        out = []
+        for call in tool_calls:
+            data = _payment_started(call)
+            if data is None:
+                continue
+            try:
+                async with httpx.AsyncClient(timeout=10, transport=transport) as client:
+                    resp = await client.post(f"{backend_url()}/orders/{data['order_id']}/payment/flag",
+                                             json={"reason": (reason or "output_scan")[:500]})
+                ok = resp.status_code < 400
+            except httpx.HTTPError:
+                ok = False
+            (logger.warning if ok else logger.error)(
+                "Output check: %s payment request %s", "flagged" if ok else "could not flag",
+                data["payment_request_id"])
+            out.append({"tool": "pay_for_order", "id": data["payment_request_id"], "what": "a payment request",
+                        "where": "Ironclad", "flagged": ok})
+        return out
+
+    return flag
+
+
 def build_platform(**platform_kwargs: Any) -> Platform:
     """The agent's platform, from the bastion control plane or the local YAML.
 
@@ -72,6 +136,11 @@ def build_platform(**platform_kwargs: Any) -> Platform:
     """
     url, key = os.getenv("BASTION_URL"), os.getenv("BASTION_KEY")
     backend_url = os.getenv("FOODDASH_BASE_URL")
+    holder: dict[str, Platform] = {}
+    platform_kwargs.setdefault("on_output_blocked", make_flagger(
+        lambda: holder["platform"].config.platform.apps[APP]["base_url"].rstrip("/"),
+        platform_kwargs.get("http_transport"),
+    ))
     if url and key:
         if backend_url:
             logger.warning("FOODDASH_BASE_URL is ignored in remote mode: set the fooddash app's "
@@ -84,6 +153,7 @@ def build_platform(**platform_kwargs: Any) -> Platform:
         if platform.app != APP:
             raise RuntimeError(f"BASTION_KEY belongs to app {platform.app!r}, not {APP!r}.")
         logger.info("bastion remote mode: %s, revision %s", url, platform.bundle_revision)
+        holder["platform"] = platform
         return platform
 
     with open(CONFIG_PATH) as f:
@@ -92,7 +162,9 @@ def build_platform(**platform_kwargs: Any) -> Platform:
         raw["apps"][APP]["base_url"] = backend_url.rstrip("/")
     if os.getenv("OPENAI_MODEL"):  # library mode only; in remote mode the service decides the model
         raw["agents"][AGENT_ID]["model"] = os.environ["OPENAI_MODEL"]
-    return Platform.from_config(raw, app=APP, prepare_tool_call=prepare_tool_call, **platform_kwargs)
+    platform = Platform.from_config(raw, app=APP, prepare_tool_call=prepare_tool_call, **platform_kwargs)
+    holder["platform"] = platform
+    return platform
 
 
 @asynccontextmanager
@@ -141,7 +213,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
     except Exception as exc:
         logger.exception("Agent error")
         raise HTTPException(status_code=502, detail=f"Agent error: {exc}") from exc
-    return ChatResponse(response=reply.content, session_id=session_id, trace_id=reply.trace_id)
+    # The approval line is the system's: added after the output scan and any
+    # fallback reply, built from pay_for_order's structured result.
+    lines = approval_lines(reply.trace.get("tool_calls", []))
+    return ChatResponse(response=add_lines(reply.content, lines), session_id=session_id, trace_id=reply.trace_id)
 
 
 def _short(name: str) -> str:

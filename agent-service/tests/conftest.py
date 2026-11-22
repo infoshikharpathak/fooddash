@@ -37,12 +37,17 @@ class StubLLM:
         self.requests: list[list] = []
         self.models: list[str] = []
         self.flag_words: list[str] = []  # the classifier flags text containing any of these
+        self.label_words: dict[str, str] = {}  # word -> output label (unrequested_action, ...)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     async def _create(self, **kwargs):
         msgs = kwargs["messages"]
         if is_classifier_request(msgs):  # Anvil's injection scan, via the SDK
             text = _content(msgs[-1]) or ""
+            label = next((lbl for w, lbl in self.label_words.items() if w in text), None)
+            if label:
+                return _completion({"role": "assistant", "content": json.dumps({"label": label, "reason": "stub"})},
+                                   "stop")
             hit = next((w for w in self.flag_words if w in text), None)
             verdict = {"injection": True, "pattern": f"stub flag: {hit}"} if hit else {"injection": False}
             return _completion({"role": "assistant", "content": json.dumps(verdict)}, "stop")
@@ -153,6 +158,9 @@ class StubBackend:
             order["payment_request_id"] = "txn_pay1"
             return httpx.Response(200, json=pay_json(order, payment_request_id="txn_pay1",
                                                      ironclad_status="pending_otp", message=PAY_MESSAGE))
+        if (method, path) == ("POST", "/orders/ord-1/payment/flag"):
+            return httpx.Response(200, json={"order_id": "ord-1", "payment_request_id": "txn_pay1",
+                                             "flagged_by_output_scan": True})
         if (method, path) == ("GET", "/orders/ord-1"):
             return httpx.Response(200, json={**self.orders[-1], "status": "picked_up"})
         return httpx.Response(404, json={"detail": f"stub backend has no {method} {path}"})
