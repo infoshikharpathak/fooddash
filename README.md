@@ -65,7 +65,9 @@ object, written to both stdout and `/tmp/fooddash.log`:
  "error_type": "PaymentTimeoutError", "stack_trace": "..."}
 ```
 
-`error_type`/`stack_trace` are only present on error-level logs.
+`error_type`/`stack_trace` are only present on error-level logs. Calls to
+Ironclad (see [Payments](#payments-through-ironclad)) add `order_id`,
+`payment_request_id` and `status` (Ironclad's payment status).
 
 ## Dashboard
 
@@ -135,7 +137,46 @@ separate file (`FOODDASH_LOG_FILE`) so they never mix into `/tmp/fooddash.log`.
 | `TRAFFIC_RPS` | `3` | New customer journeys started per second |
 | `DELIVERY_STAGE_DELAY_MIN` / `_MAX` | `1` / `4` | Seconds (uniform range) before each delivery lifecycle stage |
 | `FOODDASH_LOG_FILE` | `/tmp/fooddash.log` | Where the JSON log stream is written (stdout too) |
+| `IRONCLAD_PAYMENTS_ENABLED` | `false` | Take real payments through Ironclad (see below); off, every order is paid at once |
+| `IRONCLAD_BASE_URL` | `http://localhost:8001` | Ironclad's bank service |
+| `IRONCLAD_MERCHANT_KEY` | — | FoodDash's `mk_` merchant key, issued by Ironclad |
+| `IRONCLAD_POLL_SECONDS` | `3` | How often a pending payment is checked |
 | `FOODDASH_API_URL` | `http://localhost:8000` | Backend URL the dashboard polls (set to `http://app:8000` under Docker Compose) |
+
+## Payments through Ironclad
+
+FoodDash is a registered merchant of [Ironclad](../Ironclad), the demo bank.
+With `IRONCLAD_PAYMENTS_ENABLED=true`, orders by a user with an Ironclad
+account are paid for real; nothing moves until the user approves the payment
+with the OTP in Ironclad.
+
+- **Who pays for real:** users in `services/payments.py`'s `USER_MAP`
+  (`user_1` → Ironclad `demo_user`). Everyone else, including the traffic
+  simulator's users, keeps the simulated payment (paid at once), so the
+  simulator never creates an OTP and FoodDash still runs on its own.
+- **Flow:** the order starts with `payment_status: pending` and no delivery.
+  `POST /orders/{id}/pay` (body `{"channel": "checkout"}` by default, or
+  `"agent"`) asks Ironclad for a payment request with FoodDash's merchant
+  key: the order's stored total (never an amount from the caller),
+  `order_ref` = the order ID, and an idempotency key based on the order ID.
+  A background task then polls the request: `confirmed` → `paid` and the
+  delivery starts; `cancelled` or `expired` → `failed` and the order is
+  cancelled. In production Ironclad would call a FoodDash webhook instead of
+  being polled.
+- **Refusals:** if Ironclad refuses (e.g. `AGENT_PAYMENTS_NOT_ALLOWED`), the
+  response is a 200 with `accepted: false`, `error` and `message`, because
+  the ordering agent reaches this endpoint through Anvil, which passes a
+  success body to the model but not an error body.
+- **Agent:** the ordering agent's `pay_for_order` tool calls this endpoint
+  with `channel: agent`. See [Agent Service](#agent-service).
+
+```bash
+# Ironclad: issue FoodDash's key (once), from Ironclad/bank-service
+python -m app.cli merchants issue-key fooddash
+
+# FoodDash backend
+IRONCLAD_PAYMENTS_ENABLED=true IRONCLAD_MERCHANT_KEY=mk_... uvicorn main:app --port 8000
+```
 
 ## Demo flow
 
@@ -166,8 +207,13 @@ checks every tool call against the policy in
 - **Tools:** `list_restaurants`, `get_menu`, `get_user`, `get_order` and
   `list_orders` are trusted reads; `update_address`, `place_order` and
   `cancel_order` are untrusted writes (request and response are injection-scanned).
-- **Sequence rule:** `place_order` is blocked until the agent has called
-  `get_menu` in the same session. The model gets a correction telling it what
+  `pay_for_order` requests payment through Ironclad: the model only names the
+  order (the service sends `channel: agent` and nothing else), and the user
+  still has to approve it with the OTP in Ironclad. The agent never gets a
+  tool for Ironclad itself.
+- **Sequence rules:** `place_order` is blocked until the agent has called
+  `get_menu` in the same session, and `pay_for_order` until it has called
+  `place_order`. The model gets a correction telling it what
   to call first, and the backend never sees the order.
 - **User:** the agent's instructions call the user `demo_user`; the service
   pins `user_id` on `get_user`, `update_address` and `place_order` to
@@ -220,7 +266,8 @@ cd agent-service && pip install -r requirements-dev.txt && pytest
 
 ## Out of scope
 
-No real database (in-memory state only), no auth, no real payment
-processing, no real delivery tracking/maps, and no logscribe code in this
+No real database (in-memory state only), no auth, no card payments (only
+the Ironclad demo bank, and no refunds: an order cancelled while its payment
+is pending can still be paid in Ironclad, which is logged as needing a refund), no real delivery tracking/maps, and no logscribe code in this
 repo — zero coupling in either direction. The dashboard is read-only
 observability for the demo itself, not a customer-facing ordering UI.
