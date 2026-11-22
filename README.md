@@ -151,9 +151,10 @@ account are paid for real; nothing moves until the user approves the payment
 with the OTP in Ironclad.
 
 - **Who pays for real:** users in `services/payments.py`'s `USER_MAP`
-  (`user_1` → Ironclad `demo_user`). Everyone else, including the traffic
-  simulator's users, keeps the simulated payment (paid at once), so the
-  simulator never creates an OTP and FoodDash still runs on its own.
+  (`user_1` → Ironclad `demo_user`). Everyone else keeps the simulated
+  payment (paid at once). The traffic simulator never picks a mapped user,
+  so simulated orders never wait on a payment, and FoodDash still runs on
+  its own.
 - **Flow:** the order starts with `payment_status: pending` and no delivery.
   `POST /orders/{id}/pay` (body `{"channel": "checkout"}` by default, or
   `"agent"`) asks Ironclad for a payment request with FoodDash's merchant
@@ -163,10 +164,15 @@ with the OTP in Ironclad.
   delivery starts; `cancelled` or `expired` → `failed` and the order is
   cancelled. In production Ironclad would call a FoodDash webhook instead of
   being polled.
-- **Refusals:** if Ironclad refuses (e.g. `AGENT_PAYMENTS_NOT_ALLOWED`), the
-  response is a 200 with `accepted: false`, `error` and `message`, because
-  the ordering agent reaches this endpoint through Anvil, which passes a
-  success body to the model but not an error body.
+- **Refusals:** if Ironclad refuses, `/pay` answers with Ironclad's status
+  code (e.g. 403 for `AGENT_PAYMENTS_NOT_ALLOWED`) and
+  `{"detail": {"error", "message"}}`; Ironclad being down, or rejecting
+  FoodDash's own key, is a 502. The ordering agent gets the status and body
+  through Anvil.
+- **Cancelling:** cancelling an order whose payment is still pending also
+  withdraws the request in Ironclad (`POST /payments/requests/{id}/cancel`),
+  which closes the user's OTP modal. If the user had already paid, the order
+  stays cancelled and "refund needed" is logged.
 - **Agent:** the ordering agent's `pay_for_order` tool calls this endpoint
   with `channel: agent`. See [Agent Service](#agent-service).
 
@@ -208,9 +214,14 @@ checks every tool call against the policy in
   `list_orders` are trusted reads; `update_address`, `place_order` and
   `cancel_order` are untrusted writes (request and response are injection-scanned).
   `pay_for_order` requests payment through Ironclad: the model only names the
-  order (the service sends `channel: agent` and nothing else), and the user
-  still has to approve it with the OTP in Ironclad. The agent never gets a
-  tool for Ironclad itself.
+  order, and the service adds `channel: agent`. The user still has to
+  approve it with the OTP in Ironclad. The agent never gets a tool for
+  Ironclad itself.
+- **Parameter checks:** Anvil checks every call against the tool's declared
+  `parameters` in `anvil-fooddash.yaml`. A missing or mistyped field, or one
+  the schema doesn't declare (an `amount` or `channel` on `pay_for_order`), is
+  blocked as `invalid_params` before the backend sees it. If a tool fails at
+  the backend, the model gets the HTTP status and the error body.
 - **Sequence rules:** `place_order` is blocked until the agent has called
   `get_menu` in the same session, and `pay_for_order` until it has called
   `place_order`. The model gets a correction telling it what
@@ -267,7 +278,7 @@ cd agent-service && pip install -r requirements-dev.txt && pytest
 ## Out of scope
 
 No real database (in-memory state only), no auth, no card payments (only
-the Ironclad demo bank, and no refunds: an order cancelled while its payment
-is pending can still be paid in Ironclad, which is logged as needing a refund), no real delivery tracking/maps, and no logscribe code in this
+the Ironclad demo bank), no refunds (an order cancelled just after its
+payment was confirmed is logged as needing one), no real delivery tracking/maps, and no logscribe code in this
 repo — zero coupling in either direction. The dashboard is read-only
 observability for the demo itself, not a customer-facing ordering UI.
