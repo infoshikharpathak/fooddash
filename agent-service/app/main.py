@@ -174,6 +174,10 @@ def build_platform(**platform_kwargs: Any) -> Platform:
         raw["apps"][APP]["base_url"] = backend_url.rstrip("/")
     if os.getenv("OPENAI_MODEL"):  # library mode only; in remote mode the service decides the model
         raw["agents"][AGENT_ID]["model"] = os.environ["OPENAI_MODEL"]
+    if os.getenv("BASTION_DASHBOARD_URL") and os.getenv("BASTION_DASHBOARD_KEY"):
+        # Library mode with traces on a bastion dashboard (e.g. to see the
+        # chat hub's agent-to-agent calls linked to FoodDash's traces).
+        raw["dashboard"] = {"url": os.environ["BASTION_DASHBOARD_URL"], "key": os.environ["BASTION_DASHBOARD_KEY"]}
     platform = Platform.from_config(raw, app=APP, prepare_tool_call=prepare_tool_call, **platform_kwargs)
     holder["platform"] = platform
     return platform
