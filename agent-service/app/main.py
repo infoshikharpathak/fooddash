@@ -50,9 +50,10 @@ def prepare_tool_call(ctx: Any, tool: str, params: dict[str, Any]) -> dict[str, 
     if tool in _USER_SCOPED_TOOLS:
         params["user_id"] = FOODDASH_USER_ID
     if tool == "pay_for_order":
-        # The model names the order and nothing else: the amount is the
-        # order's stored total, and Ironclad is told an agent started it.
-        return {"order_id": params.get("order_id"), "channel": "agent"}
+        # Ironclad is told an agent started this payment. The tool's schema
+        # declares only order_id, so Anvil blocks a model that tries to send
+        # channel (or an amount) itself; this host-filled value is allowed.
+        params["channel"] = "agent"
     return params
 
 
@@ -167,6 +168,7 @@ def get_traces(session_id: str):
             "result": r["result"],
             "violation": r["violation"],
             "correction_message": r["correction_message"],
+            "http_status": r.get("http_status"),  # the tool's 4xx/5xx status, for upstream errors
             "latency_ms": round(r["latency_ms"], 1) if r["latency_ms"] is not None else None,
         })
     return {"session_id": session_id, "traces": traces}

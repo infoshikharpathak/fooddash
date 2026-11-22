@@ -95,12 +95,12 @@ PAY_MESSAGE = ("Payment of $25.00 requested. The user must approve it with the O
                "the order is not paid until then.")
 
 
-def pay_json(order, *, accepted, message, payment_request_id=None, ironclad_status=None, error=None):
+def pay_json(order, *, message, payment_request_id=None, ironclad_status=None):
     """Shape of the backend's PayResponse."""
-    return {"order_id": order["id"], "accepted": accepted, "payment_status": order["payment_status"],
+    return {"order_id": order["id"], "payment_status": order["payment_status"],
             "payment_request_id": payment_request_id, "amount": order["total"], "channel": "agent",
-            "ironclad_status": ironclad_status, "merchant_display_name": "FoodDash" if accepted else None,
-            "expires_at": None, "error": error, "message": message}
+            "ironclad_status": ironclad_status, "merchant_display_name": "FoodDash",
+            "expires_at": None, "message": message}
 
 
 def order_json(items, total, status="confirmed", payment_status="paid"):
@@ -118,8 +118,8 @@ class StubBackend:
     def __init__(self):
         self.requests: list[httpx.Request] = []
         self.orders: list[dict] = []
-        # What POST /orders/{id}/pay answers: accepted, or refused by Ironclad.
-        self.pay_refusal: tuple[str, str] | None = None
+        # (status, error, message) to make POST /orders/{id}/pay fail as the backend does
+        self.pay_refusal: tuple[int, str, str] | None = None
         self.new_payment_status = "paid"  # "pending" when FoodDash takes real payments
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -144,10 +144,10 @@ class StubBackend:
         if (method, path) == ("POST", "/orders/ord-1/pay"):
             order = self.orders[-1]
             if self.pay_refusal:
-                code, message = self.pay_refusal
-                return httpx.Response(200, json=pay_json(order, accepted=False, error=code, message=message))
+                status, code, message = self.pay_refusal
+                return httpx.Response(status, json={"detail": {"error": code, "message": message}})
             order["payment_request_id"] = "txn_pay1"
-            return httpx.Response(200, json=pay_json(order, accepted=True, payment_request_id="txn_pay1",
+            return httpx.Response(200, json=pay_json(order, payment_request_id="txn_pay1",
                                                      ironclad_status="pending_otp", message=PAY_MESSAGE))
         if (method, path) == ("GET", "/orders/ord-1"):
             return httpx.Response(200, json={**self.orders[-1], "status": "picked_up"})

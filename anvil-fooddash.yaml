@@ -81,6 +81,7 @@ apps:
           properties:
             limit:
               type: integer
+              minimum: 1
               description: "Max orders to return (default 100)"
 
       # ── Write tools (untrusted — change state, need governance) ──────
@@ -99,6 +100,7 @@ apps:
               description: "The user whose address to change"
             address:
               type: string
+              minLength: 1
               description: "The new delivery address"
           required: [user_id, address]
         response_schema:
@@ -131,6 +133,7 @@ apps:
                     description: "Menu item ID from get_menu (e.g. item_1)"
                   quantity:
                     type: integer
+                    minimum: 1
                     description: "How many (default 1)"
                 required: [menu_item_id]
           required: [restaurant_id, user_id, items]
@@ -140,7 +143,7 @@ apps:
       pay_for_order:
         path: "/orders/{order_id}/pay"
         method: POST
-        description: "Ask Ironclad (the user's bank) to collect payment for an order you just placed. This only creates a payment request: the user must approve it with the OTP in Ironclad, and the order is not paid until get_order shows payment_status 'paid'. If accepted is false, the response says why."
+        description: "Ask Ironclad (the user's bank) to collect payment for an order you just placed. This only creates a payment request: the user must approve it with the OTP in Ironclad, and the order is not paid until get_order shows payment_status 'paid'. If Ironclad refuses, the error says why."
         trust: untrusted
         timeout: 15
         injection_scanning: true
@@ -152,7 +155,7 @@ apps:
               description: "The order ID returned by place_order"
           required: [order_id]
         response_schema:
-          required_fields: ["order_id", "accepted", "payment_status", "message"]
+          required_fields: ["order_id", "payment_status", "message"]
 
       cancel_order:
         path: "/orders/{order_id}/cancel"
@@ -184,7 +187,7 @@ agents:
       Before placing an order, always call list_restaurants and get_menu so the user knows what's available.
       Confirm the order details (restaurant, items, quantities, total estimate) before calling place_order.
       After placing an order, call pay_for_order with its order_id, then tell the user to approve the payment with the OTP in Ironclad, their bank. You can never approve it yourself.
-      Never say an order is paid until get_order shows payment_status "paid". If pay_for_order returns accepted false, tell the user why.
+      Never say an order is paid until get_order shows payment_status "paid". If pay_for_order fails, tell the user why.
       You can check order status and cancel orders that haven't been picked up yet.
       Be concise and helpful. Format prices with $.
     tools:
