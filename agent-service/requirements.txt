@@ -5,6 +5,5 @@ pydantic>=2.0
 python-dotenv>=1.0
 pyyaml>=6.0
 
-# The garrison SDK (brings anvil-ai and agent-forge at the commits it pins).
-# Pinned by full commit SHA; the SDK lives in the repo's sdk/ folder.
-garrison @ git+https://github.com/infoshikharpathak/garrison.git@46bb3eae119708b1411d301f5d6ab75adb457b5c#subdirectory=sdk
+# The garrison SDK from PyPI (brings garrison-anvil and garrison-forge).
+garrison-sdk>=0.1.0,<0.2
