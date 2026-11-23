@@ -1,5 +1,5 @@
-# bastion config for FoodDash: the fooddash app, its tools, and the
-# ordering agent. bastion compiles the agent's tools, sequences,
+# garrison config for FoodDash: the fooddash app, its tools, and the
+# ordering agent. garrison compiles the agent's tools, sequences,
 # strictness and trust overrides into the Anvil policy that governs every
 # call, so that policy is the single source of truth for what the agent may do.
 # Tool IDs are "fooddash.<tool>", agent IDs "fooddash.<agent>"; inside a

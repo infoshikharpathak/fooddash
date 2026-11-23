@@ -34,7 +34,7 @@ SCENARIOS = [
 
 async def run_one(sc: dict, run: int, model: str) -> dict:
     import app.main as main
-    from bastion import Platform
+    from garrison import Platform
     from tests.conftest import StubBackend
 
     raw = yaml.safe_load(open(main.CONFIG_PATH))

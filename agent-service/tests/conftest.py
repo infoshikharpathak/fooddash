@@ -1,5 +1,5 @@
 """Stubbed LLM and food backend for agent-service tests. Anvil, Agent Forge
-and bastion are real; only the model and the backend's HTTP API are fake."""
+and garrison are real; only the model and the backend's HTTP API are fake."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from bastion.classifier import is_classifier_request
+from garrison.classifier import is_classifier_request
 from openai.types.chat import ChatCompletion
 
 os.environ.setdefault("OPENAI_API_KEY", "dummy-key-for-tests")
 
 # Every caller needs an ak_ key: FoodDash's own (first party) and the chat hub's.
-from bastion.a2a import hash_key  # noqa: E402
+from garrison.a2a import hash_key  # noqa: E402
 
 FIRST_PARTY_KEY = "ak_test_fooddash_first_party"
 HUB_KEY = "ak_test_chathub"
@@ -24,7 +24,7 @@ os.environ["FOODDASH_A2A_KEYS"] = json.dumps({
     hash_key(HUB_KEY): {"app": "chathub", "user_id": "user_1"},
 })
 FIRST_PARTY = {"Authorization": f"Bearer {FIRST_PARTY_KEY}"}
-for var in ("OPENAI_MODEL", "FOODDASH_BASE_URL", "BASTION_URL", "BASTION_KEY"):
+for var in ("OPENAI_MODEL", "FOODDASH_BASE_URL", "GARRISON_URL", "GARRISON_KEY", "BASTION_URL", "BASTION_KEY"):
     os.environ.pop(var, None)
 
 

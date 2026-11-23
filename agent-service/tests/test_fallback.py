@@ -1,5 +1,5 @@
 """When the output scan blocks the ordering agent's reply, the user gets a
-truthful line built from what the turn's tools did (bastion's fallback),
+truthful line built from what the turn's tools did (garrison's fallback),
 never the blocked text; the payment request is flagged, not cancelled; and
 the system's approval line follows, once."""
 

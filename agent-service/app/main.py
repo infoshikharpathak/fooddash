@@ -1,6 +1,6 @@
-"""FoodDash Agent Service: the food ordering assistant, on the bastion SDK.
+"""FoodDash Agent Service: the food ordering assistant, on the garrison SDK.
 
-bastion runs the agent (Agent Forge) under Anvil governance: the agent, its
+garrison runs the agent (Agent Forge) under Anvil governance: the agent, its
 tools and its policy all come from anvil-fooddash.yaml. This service only
 adds what is FoodDash-specific: the signed-in user's ID on every tool call,
 and the HTTP API (chat, traces, health).
@@ -27,7 +27,8 @@ _forge_env = os.path.join(os.path.dirname(__file__), "../../../agent-forge/.env"
 if os.path.exists(_forge_env):
     load_dotenv(_forge_env)
 
-from bastion import Platform  # noqa: E402
+from garrison import Platform  # noqa: E402
+from garrison.compat import getenv  # noqa: E402  (GARRISON_*, else the pre-rename names)
 
 from . import a2a, requested  # noqa: E402
 
@@ -130,11 +131,11 @@ def make_flagger(backend_url, transport: Any = None):
 
 
 def build_platform(**platform_kwargs: Any) -> Platform:
-    """The agent's platform, from the bastion control plane or the local YAML.
+    """The agent's platform, from the garrison control plane or the local YAML.
 
-    Remote mode, when BASTION_URL and BASTION_KEY are both set: the bundle
+    Remote mode, when GARRISON_URL and GARRISON_KEY are both set: the bundle
     (tools, agent, prompt version, policy) comes from the service and is
-    re-checked every BASTION_REFRESH_SECONDS (default 30), so prompt edits and
+    re-checked every GARRISON_REFRESH_SECONDS (default 30), so prompt edits and
     rollbacks there apply without a restart. Otherwise it's library mode on
     the local anvil-fooddash.yaml, with the backend at FOODDASH_BASE_URL if
     that's set and the model from OPENAI_MODEL if that's set.
@@ -142,7 +143,7 @@ def build_platform(**platform_kwargs: Any) -> Platform:
     *platform_kwargs* go to Platform (tests pass a stub LLM client, an HTTP
     transport for the backend, and in remote mode a service transport).
     """
-    url, key = os.getenv("BASTION_URL"), os.getenv("BASTION_KEY")
+    url, key = getenv("GARRISON_URL"), getenv("GARRISON_KEY")
     backend_url = os.getenv("FOODDASH_BASE_URL")
     holder: dict[str, Platform] = {}
     platform_kwargs.setdefault("is_requested_action", requested.make_is_requested_action(
@@ -156,15 +157,15 @@ def build_platform(**platform_kwargs: Any) -> Platform:
     if url and key:
         if backend_url:
             logger.warning("FOODDASH_BASE_URL is ignored in remote mode: set the fooddash app's "
-                           "base_url on the bastion service instead.")
+                           "base_url on the garrison service instead.")
         platform = Platform.from_service(
             url, key, prepare_tool_call=prepare_tool_call,
-            refresh_interval=float(os.getenv("BASTION_REFRESH_SECONDS", "30")),
+            refresh_interval=float(getenv("GARRISON_REFRESH_SECONDS", "30")),
             **platform_kwargs,
         )
         if platform.app != APP:
-            raise RuntimeError(f"BASTION_KEY belongs to app {platform.app!r}, not {APP!r}.")
-        logger.info("bastion remote mode: %s, revision %s", url, platform.bundle_revision)
+            raise RuntimeError(f"GARRISON_KEY belongs to app {platform.app!r}, not {APP!r}.")
+        logger.info("garrison remote mode: %s, revision %s", url, platform.bundle_revision)
         holder["platform"] = platform
         return platform
 
@@ -174,10 +175,10 @@ def build_platform(**platform_kwargs: Any) -> Platform:
         raw["apps"][APP]["base_url"] = backend_url.rstrip("/")
     if os.getenv("OPENAI_MODEL"):  # library mode only; in remote mode the service decides the model
         raw["agents"][AGENT_ID]["model"] = os.environ["OPENAI_MODEL"]
-    if os.getenv("BASTION_DASHBOARD_URL") and os.getenv("BASTION_DASHBOARD_KEY"):
-        # Library mode with traces on a bastion dashboard (e.g. to see the
+    if getenv("GARRISON_DASHBOARD_URL") and getenv("GARRISON_DASHBOARD_KEY"):
+        # Library mode with traces on a garrison dashboard (e.g. to see the
         # chat hub's agent-to-agent calls linked to FoodDash's traces).
-        raw["dashboard"] = {"url": os.environ["BASTION_DASHBOARD_URL"], "key": os.environ["BASTION_DASHBOARD_KEY"]}
+        raw["dashboard"] = {"url": getenv("GARRISON_DASHBOARD_URL"), "key": getenv("GARRISON_DASHBOARD_KEY")}
     platform = Platform.from_config(raw, app=APP, prepare_tool_call=prepare_tool_call, **platform_kwargs)
     holder["platform"] = platform
     return platform

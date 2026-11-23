@@ -3,7 +3,7 @@ session, and only if nothing in the session was withheld."""
 
 import json
 
-from bastion import NOT_AN_ACTION
+from garrison import NOT_AN_ACTION
 
 from app.requested import is_requested_action
 

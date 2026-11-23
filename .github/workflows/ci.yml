@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"  # matches agent-service's Docker image
-          # The bastion pin (a full commit SHA) only changes when
+          # The garrison pin (a full commit SHA) only changes when
           # requirements.txt does, so its git build is cached with it.
           cache: pip
           cache-dependency-path: agent-service/requirements*.txt

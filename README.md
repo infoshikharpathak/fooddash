@@ -205,7 +205,7 @@ on their own.
 
 `agent-service/` is a chat-based ordering assistant: a separate FastAPI app
 on port 8100 that drives the backend above through governed tool calls. It
-runs on the [bastion](https://github.com/infoshikharpathak/bastion) SDK, the
+runs on the [garrison](https://github.com/infoshikharpathak/garrison) SDK, the
 same way Ironclad's agent-service does: Agent Forge runs the agent, and Anvil
 checks every tool call against the policy in
 [`anvil-fooddash.yaml`](anvil-fooddash.yaml).
@@ -233,7 +233,7 @@ checks every tool call against the policy in
   `Authorization: Bearer ak_...`, a key FoodDash issued to that app
   (`python -m app.a2a issue chathub --user user_1`; only SHA-256 hashes are
   kept, in the file `FOODDASH_A2A_KEYS` points to). Identity comes from the
-  key only: the `X-Bastion-Call-Chain` and `X-Bastion-Trace-Id` headers are
+  key only: the `X-Garrison-Call-Chain` and `X-Garrison-Trace-Id` headers are
   recorded (the trace links to the caller's) but never trusted. An unknown
   key (or none) is 401. Each
   key maps to a calling app and, for this demo, a fixed FoodDash user
@@ -314,11 +314,11 @@ with Anvil's decision on it.
 | `OPENAI_MODEL` | `gpt-4o-mini` | Overrides the model in `anvil-fooddash.yaml` (library mode only) |
 | `FOODDASH_BASE_URL` | `http://localhost:8000` | Where the tools reach the backend (library mode only) |
 | `FOODDASH_USER_ID` | `user_1` | The backend user every user-scoped call acts as |
-| `BASTION_URL` + `BASTION_KEY` | unset | Remote mode: load the bundle from the bastion control plane instead of the YAML |
+| `GARRISON_URL` + `GARRISON_KEY` | unset | Remote mode: load the bundle from the garrison control plane instead of the YAML |
 | `ANVIL_CONFIG_PATH` | `../anvil-fooddash.yaml` | Config path (for containers, where the yaml is mounted) |
 
 Agent-service tests stub the model and the backend (Anvil, Agent Forge and
-bastion run for real), so they need no API key:
+garrison run for real), so they need no API key:
 
 ```bash
 cd agent-service && pip install -r requirements-dev.txt && pytest

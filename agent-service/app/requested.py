@@ -7,7 +7,7 @@ Two kinds of actions, two moments:
   requested if the order was placed in this session in a turn where the user
   confirmed it, and no tool response in the session was withheld.
 - update_address and cancel_order change data with no OTP behind them, so a
-  flag would do nothing: they are checked BEFORE they run (bastion's
+  flag would do nothing: they are checked BEFORE they run (garrison's
   pre-call gate) and blocked with unrequested_action unless the user asked:
   - update_address: the new address appears in the user's messages of this
     turn or the previous 2 (case- and whitespace-insensitive), or the agent
@@ -24,7 +24,7 @@ import re
 from typing import Any
 
 import httpx
-from bastion import NOT_AN_ACTION, NotRequested
+from garrison import NOT_AN_ACTION, NotRequested
 
 from .a2a import EXTERNAL_PAYMENT_MESSAGE, EXTERNAL_TOOLS, FIRST_PARTY_APP
 

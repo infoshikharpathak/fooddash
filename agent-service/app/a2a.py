@@ -22,7 +22,7 @@ import json
 import os
 from pathlib import Path
 
-from bastion.a2a import CallerKeys, hash_key, new_key
+from garrison.a2a import CallerKeys, hash_key, new_key
 
 ENV = "FOODDASH_A2A_KEYS"
 

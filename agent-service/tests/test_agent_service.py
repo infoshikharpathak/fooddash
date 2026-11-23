@@ -1,4 +1,4 @@
-"""agent-service on bastion: chat, governance, sessions and traces.
+"""agent-service on garrison: chat, governance, sessions and traces.
 
 Every test checks what the model actually received in each tool result, not
 just which backend endpoints were called: a tool can reach the backend and

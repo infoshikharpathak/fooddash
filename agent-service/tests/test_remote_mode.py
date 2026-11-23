@@ -1,4 +1,4 @@
-"""BASTION_URL + BASTION_KEY: the agent runs on the control plane's bundle.
+"""GARRISON_URL + GARRISON_KEY: the agent runs on the control plane's bundle.
 Without them it's library mode on anvil-fooddash.yaml."""
 
 import copy
@@ -16,7 +16,7 @@ CONFIG = yaml.safe_load((Path(__file__).resolve().parents[2] / "anvil-fooddash.y
 KEY = "bk_" + "k" * 43
 
 
-class FakeBastion:
+class FakeGarrison:
     """The control plane's GET /v1/sdk/bundle, with ETags."""
 
     def __init__(self, bundle, app="fooddash"):
@@ -39,9 +39,9 @@ class FakeBastion:
 
 
 def _remote_env(monkeypatch):
-    monkeypatch.setenv("BASTION_URL", "http://bastion.test")
-    monkeypatch.setenv("BASTION_KEY", KEY)
-    monkeypatch.setenv("BASTION_REFRESH_SECONDS", "0")  # tests refresh explicitly
+    monkeypatch.setenv("GARRISON_URL", "http://garrison.test")
+    monkeypatch.setenv("GARRISON_KEY", KEY)
+    monkeypatch.setenv("GARRISON_REFRESH_SECONDS", "0")  # tests refresh explicitly
 
 
 @pytest.fixture
@@ -49,10 +49,10 @@ async def remote(monkeypatch, tmp_path):
     import app.main as main
 
     _remote_env(monkeypatch)
-    service, llm, backend = FakeBastion(CONFIG), StubLLM({}), StubBackend()
+    service, llm, backend = FakeGarrison(CONFIG), StubLLM({}), StubBackend()
     platform = main.build_platform(openai_client=llm, http_transport=httpx.MockTransport(backend),
                                    service_transport=httpx.MockTransport(service), cache_dir=tmp_path,
-                                   dashboard=False)  # FakeBastion has no /v1/traces
+                                   dashboard=False)  # FakeGarrison has no /v1/traces
     await platform.start()
     main.app.state.platform = platform
     from .conftest import FIRST_PARTY
@@ -97,7 +97,7 @@ def test_key_for_another_app_is_refused(monkeypatch, tmp_path):
     import app.main as main
 
     _remote_env(monkeypatch)
-    other = FakeBastion({"apps": {"notify": {"tools": {}}}}, app="notify")
+    other = FakeGarrison({"apps": {"notify": {"tools": {}}}}, app="notify")
     with pytest.raises(RuntimeError, match="belongs to app 'notify'"):
         main.build_platform(service_transport=httpx.MockTransport(other), cache_dir=tmp_path, dashboard=False)
 
@@ -108,7 +108,7 @@ def test_fooddash_base_url_is_ignored_in_remote_mode_with_a_warning(monkeypatch,
     _remote_env(monkeypatch)
     monkeypatch.setenv("FOODDASH_BASE_URL", "http://app:8000")
     with caplog.at_level("WARNING"):
-        platform = main.build_platform(service_transport=httpx.MockTransport(FakeBastion(CONFIG)),
+        platform = main.build_platform(service_transport=httpx.MockTransport(FakeGarrison(CONFIG)),
                                        cache_dir=tmp_path, dashboard=False)
     assert "FOODDASH_BASE_URL is ignored in remote mode" in caplog.text
     assert platform.config.platform.apps["fooddash"]["base_url"] == "http://localhost:8000"

@@ -4,7 +4,7 @@ a restricted tool set enforced in code, and no payments."""
 import json
 
 import pytest
-from bastion.a2a import CALL_CHAIN_HEADER, TRACE_ID_HEADER, new_key
+from garrison.a2a import CALL_CHAIN_HEADER, TRACE_ID_HEADER, new_key
 
 from app.a2a import EXTERNAL_PAYMENT_MESSAGE
 
